@@ -33,7 +33,7 @@ Two generators share **`config.yaml`** (Gemini) and docs under **`docs/`**:
 | `config.yaml` | **Local only** (gitignored)—copy from `config-example.yaml`; prefer `GEMINI_API_KEY` in the environment |
 | [`docs/`](ai-data-generator/docs/) | Data-shape context (`data_structure_context.md`, `bank_branch_raw_feedback_context.md`, `telesales_vibevoice_data_structure.md`) |
 | [`requirements.txt`](ai-data-generator/requirements.txt) / [`pyproject.toml`](ai-data-generator/pyproject.toml) | Python dependencies / optional editable install |
-| `out/*.jsonl` | **Generated** files (gitignored); one JSONL per branch when writing to disk |
+| `out/` | **Generated** tree (gitignored): branch JSONL for the bank generator; `metadata.json` and `conversations/` for call-center batches |
 
 ### Quick start (from repo root)
 
