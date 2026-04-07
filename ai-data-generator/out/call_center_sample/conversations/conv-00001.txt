@@ -1,0 +1,10 @@
+Speaker 0: Hello, is this Frank? This is Sarah calling from the bank. How are you today?
+Speaker 1: I am doing well, thank you. What can I help you with?
+Speaker 0: I am calling because our records show you have been a great customer and you qualify for a personal loan top-up.
+Speaker 1: Oh, a top-up? I have been considering some renovations for my home actually.
+Speaker 0: That is perfect timing then. With your current standing, we can offer you an additional amount at a very competitive interest rate.
+Speaker 1: That sounds interesting. What are the terms like?
+Speaker 0: It is a straightforward process with no hidden fees, and we can keep your monthly repayments very manageable for your budget.
+Speaker 1: I see. If the rate is truly that good, I would be interested in hearing more about it.
+Speaker 0: Wonderful. I can send the details to your email address right away so you can review everything at your own pace.
+Speaker 1: That would be excellent, thank you for reaching out today.

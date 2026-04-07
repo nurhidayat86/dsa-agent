@@ -14,4 +14,4 @@ dependencies = [
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["bank_feedback_generator*"]
+include = ["bank_feedback_generator*", "call_center_data*"]

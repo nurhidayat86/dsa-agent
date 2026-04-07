@@ -872,7 +872,7 @@ if __name__ == "__main__":
         max_chars_detailed_complaint=32000,
         seed=42,
         config_path=_PACKAGE_ROOT / "config.yaml",
-        output_jsonl_dir=_PACKAGE_ROOT / "out",
+        output_jsonl_dir=_PACKAGE_ROOT / "out"/"bank_feedback_sample",
         logging_level=logging.INFO,
         created_date="2025-01-01",
     )

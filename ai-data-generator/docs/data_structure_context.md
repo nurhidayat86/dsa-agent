@@ -62,12 +62,14 @@ Examples worth supporting in a generator (choose based on use case):
 - Often **heterogeneous**: each source has its own pipeline; **unified VOC** layers add `source_system`, `source_type`, `unified_text`, `ingested_at` for search and analytics.
 - Very text- or media-heavy sources may use **object storage** (e.g. recordings, long transcripts) with metadata in a database; full-text search may use Elastic, OpenSearch, or warehouse-native search.
 
+**Synthetic telesales ↔ customer (multi-turn, TTS):** One batch **`metadata.json`** holds a **`conversations` array** (all dialogues from that run) plus per-row **`transcript_path`** to plain **`transcript.txt`** files (VibeVoice `Speaker 0:` / `Speaker 1:`). Optional `manifest.jsonl`. See [`telesales_vibevoice_data_structure.md`](telesales_vibevoice_data_structure.md).
+
 ---
 
 ## Cross-cutting structure (recommended for synthetic output)
 
 1. **Common envelope** (all record types): `record_type`, `id`, `created_at`, `locale`, optional `customer_ref`, optional `brand` / `product`.
-2. **Type-specific payload**: e.g. `complaint`, `nps_response`, `review`, `chat_transcript`.
+2. **Type-specific payload**: e.g. `complaint`, `nps_response`, `review`, `chat_transcript`, `bank_telesales_batch` / `bank_telesales_conversation` (batch JSON + transcript files per [`telesales_vibevoice_data_structure.md`](telesales_vibevoice_data_structure.md)).
 3. **Serialization**: **JSON Lines (JSONL)** per type, or one stream with a discriminating `record_type`— convenient for LLM generation and loading into BigQuery or Parquet.
 
 ### Provenance (recommended for generated data)
