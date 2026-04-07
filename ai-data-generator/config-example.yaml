@@ -1,0 +1,25 @@
+# Configuration for ai-data-generator (bank feedback / complaints).
+# Prefer setting GEMINI_API_KEY in the environment; see gemini.api_key_env below.
+
+gemini:
+  # Name of environment variable that holds the Google Gemini API key
+  api_key_env: GEMINI_API_KEY
+  # Optional: inline key for local dev only (leave empty and use env instead)
+  api_key: ""
+  model: gemini-flash-lite-latest
+  temperature: 0.85
+  top_p: 0.95
+  # Larger = slower; 65536 can make each request take many minutes. Start with 8192–32768.
+  max_output_tokens: 16384
+  # Per-request timeout (ms). Default if omitted in your config: 900000 (15 min). Use null or 0 for SDK default.
+  http_timeout_ms: 900000
+
+generator:
+  generator_version: "0.1.0"
+  timezone_default: "+07:00"
+  # Max items per Gemini request (smaller = safer context limits)
+  chunk_size: 10
+  # When allow_anonymous_customer_id is true, approximate fraction of records with blank customer_ref
+  anonymous_customer_fraction: 0.2
+  max_retries: 3
+  retry_backoff_seconds: 1.5

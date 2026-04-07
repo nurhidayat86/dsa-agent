@@ -1,0 +1,17 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "bank-feedback-generator"
+version = "0.1.0"
+description = "Synthetic bank branch feedback/complaints via Gemini"
+requires-python = ">=3.10"
+dependencies = [
+  "pyyaml>=6.0.1",
+  "google-genai>=1.0.0",
+]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["bank_feedback_generator*"]
