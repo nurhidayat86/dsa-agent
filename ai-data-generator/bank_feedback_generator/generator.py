@@ -860,7 +860,7 @@ def run_bank_feedback_generation(
 
 if __name__ == "__main__":
     run_bank_feedback_generation(
-        num_branches=1,
+        num_branches=27,
         min_records_per_branch=20,
         max_records_per_branch=100,
         allow_anonymous_customer_id=True,
