@@ -1,5 +1,19 @@
-# --- Local / secrets (tracked template: config-example.yaml) ---
+# --- Local / secrets (use config-example.yaml in git as the template) ---
+# Any file named config.yaml anywhere in the repo (pattern without / matches all dirs)
 config.yaml
+# Environment files often hold GEMINI_API_KEY, OPENAI_API_KEY, etc.
+.env
+.env.*
+!.env.example
+# Optional local secret files
+secrets.yaml
+**/secrets.yaml
+config.local.yaml
+**/config.local.yaml
+*.pem
+
+# --- Generated synthetic data ---
+ai-data-generator/out/*.jsonl
 
 # --- Python ---
 __pycache__/
