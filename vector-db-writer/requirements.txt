@@ -1,0 +1,20 @@
+# Bank feedback → ChromaDB (see docs/chroma_bank_feedback_ingestion.md)
+# Qwen3-Embedding-8B requires transformers>=4.51.0 (qwen3 arch)
+chromadb>=0.5.0
+transformers>=4.51.0
+torch>=2.1.0
+safetensors>=0.4.0
+# Gemini embeddings (embedding_provider=gemini); usually already installed in google-adk
+google-genai>=1.0.0
+pyyaml>=6.0
+# Notebooks: cluster keyword extraction (optional)
+keybert>=0.8.0
+
+# google-adk pins OpenTelemetry to <1.39; chromadb may pull 1.40+ unless constrained.
+# Keep these in sync when using conda env google-adk.
+opentelemetry-api==1.38.0
+opentelemetry-sdk==1.38.0
+opentelemetry-proto==1.38.0
+opentelemetry-exporter-otlp-proto-common==1.38.0
+opentelemetry-exporter-otlp-proto-grpc==1.38.0
+opentelemetry-semantic-conventions==0.59b0

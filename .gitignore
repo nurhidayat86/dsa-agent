@@ -15,6 +15,10 @@ config.local.yaml
 # --- Generated synthetic data ---
 ai-data-generator/out/
 
+# --- vector-db-writer local assets (HF models, source data, Chroma DB) ---
+vector-db-writer/model/
+vector-db-writer/data/
+
 # --- Python ---
 __pycache__/
 *.py[cod]
