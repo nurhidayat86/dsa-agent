@@ -1,0 +1,138 @@
+cluster,text_summary,cluster_count
+-1,"This cluster of customer feedback highlights significant dissatisfaction with two primary areas of service: **debit card management (replacement and delivery)** and **credit card rewards program transparency and functionality.**
+
+### Debit Card Issues
+A recurring theme is the failure of the card replacement process. Customers report excessive delays—often exceeding two weeks—in receiving replacement debit cards. Many users, including those traveling abroad or stranded without cash due to lost or damaged cards, express frustration with the lack of proactive tracking or status updates from branches and online portals. 
+*   **Key Issues:** Lack of shipping transparency, inability of branch staff to provide concrete status updates, and the inconvenience of being without funds while waiting for physical cards. 
+*   **Requested Solutions:** Better tracking functionality in banking apps, expedited shipping options, and clearer guidance on alternative methods like cardless withdrawals.
+
+### Rewards Program Concerns
+Customers are deeply dissatisfied with the credit card rewards program, citing both technical and structural issues.
+*   **Transparency and Accuracy:** Users report that points are not accruing correctly, especially for international transactions, and that support staff provide conflicting information or generic scripts that fail to resolve the issue. There is a strong demand for a comprehensive audit of card activity and a clear, manual adjustment of points.
+*   **Program Devaluation:** Many long-time customers feel the recent changes to the rewards structure (higher redemption thresholds and lower earning rates) constitute a ""hidden devaluation"" of the product. They feel the bank has failed to communicate these changes clearly, leading to a loss of trust and loyalty.
+*   **Digital Experience:** The online rewards portal is frequently described as ""not user-friendly,"" with technical bugs such as page timeouts during redemption attempts. Customers request a more intuitive dashboard that distinguishes between pending and confirmed points.
+
+### Sentiment and Communication
+Overall sentiment is negative, characterized by frustration with repetitive support interactions. Customers are tired of explaining their history to multiple agents and receiving inconsistent answers. There is a sense of urgency, particularly regarding potential fraudulent activity or the inability to access essential funds, with many warning that they will consider switching providers if these systemic service and product issues are not addressed promptly.",16
+0,"This cluster of feedback reflects an exceptionally high level of customer satisfaction across multiple branches, specifically identified as BR-BALI-003 and BR-JAVA-006. Customers consistently report a superior banking experience, characterized by professionalism, efficiency, and a welcoming environment.
+
+**Main Themes and Issues:**
+*   **Service Excellence:** The primary driver of satisfaction is the quality of staff interactions. Customers frequently describe tellers and advisors as patient, knowledgeable, and polite. Staff are noted for their ability to handle complex transactions, explain financial products (such as interest rates, savings accounts, and mortgages) clearly, and provide assistance without being pushy or making customers feel rushed.
+*   **Operational Efficiency:** Minimal wait times and effective queue management—supported by intuitive digital kiosks—are recurring highlights. Many customers expressed relief at how quickly routine tasks, such as address updates or account inquiries, were completed.
+*   **Digital Integration:** Feedback regarding the bank's digital transition is overwhelmingly positive. Customers appreciate the new mobile app interface, budgeting tools, and in-branch tablets. Security features, such as proactive fraud alerts and clear explanations of security protocols, have significantly bolstered customer trust and peace of mind.
+*   **Atmosphere:** The physical branches are consistently described as clean, well-organized, and professional.
+
+**Sentiment:**
+The sentiment is overwhelmingly positive. Customers—many of whom are long-term clients of over ten years—frequently mention that this high standard of care is a key factor in their loyalty. Several reviewers noted that these positive experiences restored their faith in the brand after negative interactions elsewhere.
+
+**Concrete Details:**
+*   **Channels:** Interactions spanned in-branch visits, phone support, and digital platforms (mobile app and kiosks).
+*   **Products:** Positive experiences were noted regarding savings accounts, personal loans, mortgages, and debit card security.
+*   **Regional Focus:** High praise was specifically directed toward the BALI_NUSA and JAVA regions, with several requests for branch management to formally recognize the staff involved for their dedication.
+
+In summary, the bank is currently succeeding by balancing modern digital tools with high-quality, human-centric service, creating a reliable and premium banking experience that encourages customer retention and word-of-mouth recommendations.",56
+1,"This summary consolidates feedback regarding the bank's digital infrastructure, specifically the mobile app and internet banking portal.
+
+### Main Themes
+The primary concern across all feedback is **severe platform instability**. Users report persistent login failures, frequent application crashes, and system timeouts. A secondary but significant theme is **poor User Experience (UX) design** following recent updates, which has rendered once-simple tasks difficult to navigate.
+
+### Key Issues
+*   **System Outages & Reliability:** Customers are experiencing frequent, unannounced downtime. Common symptoms include ""service unavailable"" errors, application freezes during authentication, and server-side timeouts. Many users noted that standard troubleshooting (clearing cache, reinstalling apps, switching devices) does not resolve these issues, indicating systemic backend failures.
+*   **Navigation & UI Friction:** Recent updates have been poorly received. Users report that essential features—such as ""Transfer Funds"" and ""Transaction History""—are now buried under multiple sub-menus, significantly increasing the time required for daily tasks. The new layout is frequently described as cluttered and counterintuitive.
+*   **Authentication & SMS Gateways:** A significant number of users are locked out of their accounts due to failing multi-factor authentication (MFA). SMS verification codes are either not arriving or expiring prematurely, creating critical barriers to urgent bill payments.
+*   **Communication Gap:** A major point of frustration is the lack of transparency. Users feel ignored because the bank’s status pages often report ""all systems operational"" during live outages. Furthermore, customers report long wait times (40+ minutes) when trying to reach support via phone or chat, only to receive generic, unhelpful troubleshooting scripts.
+
+### Sentiment
+The sentiment is overwhelmingly negative. While many customers identify as loyal, long-term users, the recurring nature of these technical failures is pushing them to consider switching to competitors. The frustration is compounded by the fact that these digital tools are marketed as ""convenience"" features, yet their failure is forcing users to visit physical branches—an action most have intentionally avoided.
+
+### Concrete Details
+*   **Channels:** Both the mobile application and the web-based internet banking portal are equally affected.
+*   **Specific Pain Points:** Users highlighted the inability to search transaction history effectively, the failure of biometric login, and errors when generating PDF statements.
+*   **Suggested Improvements:** Customers explicitly requested a ""classic"" view, a customizable dashboard with pinned features, the addition of a ""dark mode,"" and a more reliable in-app status notification system for known outages.",56
+2,"This cluster consists of extensive customer feedback regarding systemic failures in the bank’s lending and mortgage departments. The sentiment is overwhelmingly negative, characterized by frustration, anxiety, and a profound loss of trust among long-term, loyal customers.
+
+**Main Themes and Issues:**
+
+*   **Administrative Inefficiency and Delay:** The primary grievance is the extreme, unexplained delay in processing mortgage applications, renewals, and personal loan requests. Customers report waiting weeks or months past promised deadlines. Many feel their files are ""stuck"" in a queue, with no proactive communication from the bank.
+*   **Poor Communication and Lack of Accountability:** Customers frequently report being ""passed around"" between departments, receiving contradictory information from different staff members, and being unable to reach supervisors despite promises of callbacks. The reliance on generic scripts instead of personalized updates is a major pain point.
+*   **Lack of Transparency:** There is significant confusion regarding interest rates, fee structures, and loan terms. Customers report difficulty obtaining clear explanations for rate adjustments on existing loans, with many citing discrepancies between their original signed contracts and their current statements.
+*   **Digital and Procedural Frustration:** Users find the online portals opaque, often showing ""under review"" for extended periods without granular detail. Some customers have had to resubmit documentation multiple times due to the bank's inability to locate files, leading to fears that property purchases or renovation projects will fall through.
+*   **Disregard for Loyalty:** Many customers feel their tenure with the bank is not recognized, specifically regarding competitive interest rates, renewal offers, or the quality of service provided during critical financial transactions.
+
+**Concrete Details:**
+*   **Products:** Mortgage applications (purchases and renewals) and personal loan applications are the core areas of dissatisfaction.
+*   **Channels:** Issues occur across all channels: branch visits, customer support phone lines (noted for long wait times), and the digital/mobile application portals.
+*   **Impact:** Customers are at risk of losing property deposits, failing to meet legal obligations, and facing financial hardship due to inaccurate interest calculations. Many explicitly state their intent to switch to competitor banks or escalate their complaints to external regulatory bodies if these issues are not resolved immediately.
+
+**Summary:** The feedback reflects a breakdown in the bank’s operational reliability. Customers require immediate ownership of their files, clear and honest timelines, and a reversal of inaccurate interest rate charges to restore their faith in the institution.",49
+3,"This cluster represents a significant wave of customer dissatisfaction centered on fraud, account security, and poor service responsiveness. Customers across the board are reporting unauthorized transactions on credit and debit cards, as well as persistent unauthorized login attempts on online banking profiles.
+
+### Main Themes and Issues
+*   **Fraudulent Activity:** Customers are identifying unauthorized charges—often from unfamiliar merchants or distant geographic locations—and, in some cases, multiple fraudulent transfers. There is a strong consensus that the bank’s proactive fraud monitoring failed to flag these transactions, which customers feel should have been blocked automatically.
+*   **Service Accessibility:** A critical point of frustration is the inability to reach human representatives. Customers report excessive wait times (45–60+ minutes), frequent disconnections, and being transferred between departments, which exacerbates the stress of their financial loss.
+*   **Lack of Resolution Transparency:** Claimants express deep dissatisfaction with the investigation process. They report dismissive staff, a lack of clear case tracking (no reference numbers), and slow timelines. Some customers have even experienced denied claims despite providing evidence of their whereabouts, leading to threats of escalation to the banking ombudsman.
+*   **Security Anxiety:** Long-term customers (10+ years) feel a profound loss of trust. Even when customers use mobile app features to lock their cards, the underlying fear remains that the bank’s internal security infrastructure is compromised.
+
+### Sentiment and Tone
+The sentiment is overwhelmingly negative and urgent. Customers are experiencing high levels of anxiety and financial distress, particularly when the stolen funds affect mortgage or living expenses. There is a palpable sense of abandonment, as loyal customers feel their concerns are met with automated or generic responses rather than individualized security support.
+
+### Concrete Details
+*   **Channels:** The primary issues occur via phone support (long holds) and the mobile banking app (reports of crashes or ineffective alerts).
+*   **Desired Outcomes:** Customers are universally demanding immediate reversal of fraudulent charges, issuance of new cards, a clear timeline for investigations, and direct contact from a supervisor or security specialist. Many are explicitly considering closing their accounts and moving to other institutions if these security failures are not addressed.",16
+4,"This cluster of feedback reveals deep-seated customer dissatisfaction centered on billing transparency, account management, and the quality of customer support. The primary issues can be categorized as follows:
+
+**Main Themes and Issues**
+*   **Unauthorized or Unexpected Fees:** The most prevalent complaint involves ""maintenance,"" ""administrative,"" or ""overdraft"" fees appearing on accounts without prior notification. Many long-term, loyal customers report that these charges contradict the terms agreed upon at account opening, particularly regarding minimum balance requirements.
+*   **System Errors and Glitches:** Customers frequently report technical failures, including double-billing on transactions, incorrect overdraft triggers despite sufficient funds, and ATM errors where funds were debited but not dispensed.
+*   **Service Reliability:** There are significant concerns regarding security protocols. Customers report being embarrassed and stranded when credit or debit cards are declined or blocked without notice, often despite having set travel alerts or maintaining good standing.
+*   **Communication Gaps:** A recurring point of frustration is the lack of transparency in fee schedules and the failure to provide proactive notifications regarding account changes or security blocks.
+
+**Sentiment and Experience**
+The sentiment is overwhelmingly negative, characterized by feelings of betrayal, stress, and exhaustion. Long-term customers, some with over a decade of tenure, express that their loyalty is being disregarded. A major driver of this frustration is the ""runaround"" experienced when seeking resolution: customers report being dismissed at branches, stuck on hold for extended periods, or given conflicting information by support agents who lack the authority to resolve simple billing errors.
+
+**Concrete Details**
+*   **Products:** Checking accounts, savings accounts, and credit cards are all affected by these billing and technical issues.
+*   **Channels:** The dissatisfaction spans multiple touchpoints: mobile app transaction failures, ineffective call center support, and unhelpful in-person branch visits (e.g., specific mention of branch BR-BALI-017 and BR-JAVA-013).
+*   **Desired Outcomes:** Customers are seeking immediate reversals of erroneous fees, formal written explanations for charges, and a more streamlined, user-friendly way to manage accounts and dispute transactions online. Many have explicitly threatened to escalate their complaints to the banking ombudsman or close their accounts entirely if these systemic issues are not addressed.",45
+5,"This cluster of feedback highlights significant dissatisfaction with the digital self-service tools provided within the bank branches. The overarching sentiment is one of frustration, as customers attempting to use lobby tablets for routine tasks—such as checking in, updating personal information, or opening accounts—frequently encounter hardware and software failures.
+
+**Main Themes and Issues:**
+
+*   **Unreliable Hardware:** The primary complaint is that the tablets are slow, laggy, and unresponsive. Customers frequently report touch-screen malfunctions (poor sensitivity) and devices that freeze or crash during processes like document uploads or address validation.
+*   **Poor Software Design:** Beyond hardware performance, the user interface is described as unintuitive and confusing. Users noted a lack of helpful error messages, redundant navigation menus, and a general absence of ""help"" or ""live chat"" features to assist when the software stalls.
+*   **Impact on Efficiency:** Instead of saving time, the malfunctioning tablets often force customers to abandon self-service and join the manual teller queue, which defeats the purpose of the digital initiative and creates additional work for branch staff.
+*   **Maintenance and Physical Infrastructure:** There are secondary concerns regarding the lack of routine maintenance, including unhygienic screen surfaces and a broader plea for better upkeep of physical branch facilities (specifically citing an inoperable ATM and an automatic door that hinders accessibility for wheelchair users).
+
+**Customer Sentiment and Recommendations:**
+While customers generally appreciate the staff's efforts and the intention behind providing self-service options, the execution is currently viewed as a ""chore"" rather than a convenience. Customers strongly recommend that the bank invests in upgraded, faster hardware and more intuitive software updates. Several users emphasized that for these digital tools to be effective, there must be a reliable fallback process or dedicated floor staff available to assist when the technology inevitably fails. In summary, the current state of the branch tablets is negatively impacting the bank’s goal of modernizing the customer experience.",12
+6,"This cluster of feedback reflects a high level of dissatisfaction from long-term, loyal customers regarding their experiences at various bank branches, specifically noting branches BR-BALI-017 and BR-JAVA-006. The overarching sentiment is one of frustration, feeling undervalued, and a growing loss of confidence in the institution.
+
+**Main Themes and Issues:**
+
+*   **Unprofessional Staff Conduct:** The most frequent complaint involves front-line staff who are perceived as rude, dismissive, condescending, or impatient. Customers report being ignored while staff converse with one another, having their concerns belittled, or being rushed through interactions. Several instances of inappropriate or judgmental remarks were also reported.
+*   **Operational Inefficiencies and Poor Management:** Customers consistently highlight excessive wait times—sometimes reaching two hours—even for simple inquiries or scheduled appointments. Reports of understaffing, non-functional queue management systems, and a lack of available management/supervision to resolve escalated issues are prevalent.
+*   **Inadequate Service and Training:** There is a clear theme of staff lacking the technical knowledge required for specialized tasks, such as international wire transfers or business account applications. This incompetence often leads to conflicting information, lost paperwork, and errors that force customers to perform manual corrections or make multiple visits.
+*   **Communication Gaps:** Customers are frustrated by a lack of transparency regarding system updates, policy changes (e.g., new forms), and a failure to honor promised follow-up calls or callbacks, creating a sense of systemic neglect.
+
+**Impact and Expectations:**
+The cumulative effect of these failures has led many customers to threaten the termination of their banking relationships. Because these individuals are often long-term clients, their dissatisfaction is particularly acute. They are collectively demanding:
+1.  Formal apologies and direct communication from branch managers.
+2.  Concrete evidence of staff retraining and improved management oversight.
+3.  Swift resolution of their specific account discrepancies or disputes.
+4.  A commitment to addressing the systemic operational failures mentioned above.
+
+In summary, the feedback points to a decline in service standards where customers feel their time and loyalty are no longer respected, necessitating urgent management intervention to prevent further attrition.",15
+7,"The provided feedback highlights a consistent and widespread dissatisfaction with branch operations, specifically regarding long wait times and inadequate staffing. Across numerous reports, customers consistently cite waiting 40 to 60 minutes for simple transactions, such as check deposits or account inquiries, often while observing only two tellers working despite a crowded lobby.
+
+**Main Themes and Issues:**
+*   **Inefficient Staffing:** The primary grievance is that branch management fails to align staffing levels with peak customer traffic (particularly mid-morning and lunch hours). Customers frequently observed empty desks while a long queue persisted, leading to a perception of poor resource management.
+*   **Queue Management:** There is a lack of clear communication and structure. Customers reported feeling ignored upon arrival, lack of signage, and a chaotic environment that makes it difficult to hear or understand the queuing process.
+*   **Service vs. Logistics:** A recurring sentiment is the disconnect between the high quality of the individual staff members—who are frequently described as professional, polite, and knowledgeable—and the outdated, cumbersome institutional processes that constrain them.
+*   **Digital and Administrative Barriers:** Beyond the branch, customers reported issues with lending processes, including redundant documentation requests (submitting the same proofs via email and portal), lack of status transparency, and poor internal coordination between departments. Additionally, users find the website navigation cluttered and unintuitive, specifically regarding the document center and account dashboard.
+*   **Support Channels:** Telephone and social media support channels are described as slow and ineffective, with excessive hold times and representatives who often lack the necessary information to resolve basic queries.
+
+**Sentiment and Recommendations:**
+The overall sentiment is one of frustration and disillusionment among long-term, loyal customers who value the bank’s products but are reaching a breaking point due to operational inefficiencies. Customers suggest:
+*   **Operational Shifts:** Increasing staffing during peak hours, implementing more robust appointment systems, and installing additional self-service kiosks for routine transactions.
+*   **Digital Integration:** Improving document upload reliability, providing real-time application status trackers, and simplifying website navigation.
+*   **Communication:** Offering callback features for phone support and clearer proactive updates during loan application processes.",38
