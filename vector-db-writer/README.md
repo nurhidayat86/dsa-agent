@@ -45,3 +45,7 @@ conda run -n google-adk python ingest_bank_feedback.py
 ```
 
 The `__main__` block defaults to **`embedding_provider="gemini"`** and **`GEMINI_API_KEY`**. For Qwen, set `_EMBEDDING_PROVIDER = "qwen"` and `_MODEL_PATH` to your local snapshot directory.
+
+## Downstream: topic modelling
+
+After ingestion, use the Chroma persist path with **[`topic-modelling/`](../topic-modelling/)** (`topic-modelling-ai.py`) to cluster documents, extract KeyBERT keywords with the **same** Qwen embedding model, and build Gemini summaries plus a Markdown report (see [`topic-modelling/README.md`](../topic-modelling/README.md)).

@@ -9,8 +9,10 @@ This repository hosts tools and agents for data-science and analytics workflows.
 | Folder | Purpose |
 |--------|---------|
 | [`ai-data-generator/`](ai-data-generator/) | Synthetic **customer voice** for banks via Google **Gemini**: branch **feedback / complaints** and **telesales call-center** dialogues (VibeVoice-oriented transcripts) |
+| [`vector-db-writer/`](vector-db-writer/) | **Ingest** synthetic (or real) bank-feedback **JSONL** into a **persistent ChromaDB** collection with **Qwen3-Embedding-8B** or **Gemini** embeddings |
+| [`topic-modelling/`](topic-modelling/) | **Cluster and summarize** Chroma-loaded documents: **UMAP** + **HDBSCAN**, **KeyBERT** (local Qwen), **Gemini** per-cluster summaries and a **Markdown** helicopter-view report |
 
-Root files such as [`.gitignore`](.gitignore) apply across the repo (e.g. ignoring local `config.yaml` and generated outputs).
+Root files such as [`.gitignore`](.gitignore) apply across the repo (for example ignoring local `config.yaml`, Chroma persist trees, and generated outputs).
 
 ---
 
@@ -57,6 +59,28 @@ Edit `run_call_center_generation(...)` at the bottom of `generator.py`, or impor
 
 ---
 
+## `vector-db-writer/`
+
+Loads **bank-feedback JSONL** (under `vector-db-writer/data/bank_feedback/` by convention) into **ChromaDB** with embeddings from either:
+
+- **Qwen** — local **Qwen3-Embedding-8B** via `transformers`, or  
+- **Gemini** — **`gemini-embedding-001`** via `google.genai` and an API key.
+
+Details, CLI / `__main__` defaults, and import examples: **[`vector-db-writer/README.md`](vector-db-writer/README.md)**.  
+Normative ingestion mapping: **[`vector-db-writer/docs/chroma_bank_feedback_ingestion.md`](vector-db-writer/docs/chroma_bank_feedback_ingestion.md)**.
+
+**Typical flow:** generate JSONL with `ai-data-generator` → copy or symlink into `vector-db-writer/data/bank_feedback/` → run `ingest_bank_feedback.py` → use the Chroma persist path as input to **topic-modelling**.
+
+---
+
+## `topic-modelling/`
+
+End-to-end **topic discovery** on the same Chroma collection: **L2** embeddings → **UMAP** → **HDBSCAN** → **KeyBERT** (Qwen, must match ingest geometry) → **Gemini** cluster summaries → **Gemini** Markdown report plus CSV sidecars.
+
+See **[`topic-modelling/README.md`](topic-modelling/README.md)** for entry points (`generate_topic`, `generate_topic_model`), environment notes, and how to run [`topic-modelling-ai.py`](topic-modelling/topic-modelling-ai.py). The optional notebook [`topic-modelling/notebook/chrome_viewer.ipynb`](topic-modelling/notebook/chrome_viewer.ipynb) mirrors the pipeline for exploration.
+
+---
+
 ## Future modules
 
-When new top-level folders are added (e.g. training pipelines, evaluation, or other agents), this README will be updated to list them. Individual folders may also gain their own `README.md` for detailed usage.
+When new top-level folders are added (for example training pipelines, evaluation, or other agents), this README will be updated to list them. Individual folders may also gain their own `README.md` for detailed usage.
