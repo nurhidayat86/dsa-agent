@@ -9,6 +9,7 @@ This repository hosts tools and agents for data-science and analytics workflows.
 | Folder | Purpose |
 |--------|---------|
 | [`ai-data-generator/`](ai-data-generator/) | Synthetic **customer voice** for banks via Google **Gemini**: branch **feedback / complaints** and **telesales call-center** dialogues (VibeVoice-oriented transcripts) |
+| [`predictive-model-agent/`](predictive-model-agent/) | **Agent / MCP-style** Python tools for **tabular predictive modeling**: splits, drift-style metrics (PSI, rates over time), binning helpers, and a sample **HELOC** dataset for notebooks |
 | [`vector-db-writer/`](vector-db-writer/) | **Ingest** synthetic (or real) bank-feedback **JSONL** into a **persistent ChromaDB** collection with **Qwen3-Embedding-8B** or **Gemini** embeddings |
 | [`topic-modelling/`](topic-modelling/) | **Cluster and summarize** Chroma-loaded documents: **UMAP** + **HDBSCAN**, **KeyBERT** (local Qwen), **Gemini** per-cluster summaries and a **Markdown** helicopter-view report |
 
@@ -70,6 +71,19 @@ Details, CLI / `__main__` defaults, and import examples: **[`vector-db-writer/RE
 Normative ingestion mapping: **[`vector-db-writer/docs/chroma_bank_feedback_ingestion.md`](vector-db-writer/docs/chroma_bank_feedback_ingestion.md)**.
 
 **Typical flow:** generate JSONL with `ai-data-generator` → copy or symlink into `vector-db-writer/data/bank_feedback/` → run `ingest_bank_feedback.py` → use the Chroma persist path as input to **topic-modelling**.
+
+---
+
+## `predictive-model-agent/`
+
+Python module **[`agent_tools.py`](predictive-model-agent/agent_tools.py)** (import as `agent_tools` after adding the folder to `PYTHONPATH` or running from that directory) exposes functions intended for **AI agents** or **MCP** servers: validation, explicit return shapes, and docstrings for tool schemas. Topics include **train / valid / test / OOT** style splits, **PSI**, missingness over time, feature and score diagnostics, and optional **optbinning** integration.
+
+| Piece | Role |
+|-------|------|
+| [`agent_tools.py`](predictive-model-agent/agent_tools.py) | Main library: `split_data`, `compute_psi`, timely metrics, `get_optimal_bin`, etc. |
+| [`notebook/testing_tools.ipynb`](predictive-model-agent/notebook/testing_tools.ipynb) | Example usage against [`data/heloc_dataset_v1.parquet`](predictive-model-agent/data/heloc_dataset_v1.parquet) (and CSV) |
+
+**Note:** If you still see an old `credit-risk-data-scientist/` directory after a rename, close anything locking it (e.g. Jupyter) and remove the leftover folder so only `predictive-model-agent/` remains.
 
 ---
 
