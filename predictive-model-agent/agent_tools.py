@@ -12,6 +12,7 @@ from typing import Any, Iterable, Optional
 
 import numpy as np
 import pandas as pd
+from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import roc_auc_score
 from sklearn.model_selection import train_test_split
 
@@ -1056,6 +1057,1017 @@ def select_features_iv_max_corr(
         ],
     )
     return selected_sorted, summary
+
+
+def _logistic_fit_loglik_params_probs(
+    X: np.ndarray,
+    y01: np.ndarray,
+    *,
+    eps: float = 1e-15,
+    random_state: int = 0,
+) -> tuple[float, int, np.ndarray]:
+    """
+    Fit binary logistic regression (large ``C``) and return
+    ``(log_likelihood, k_params_including_intercept, p_hat)``.
+    """
+    if X.shape[0] != y01.shape[0]:
+        raise ValueError("X and y must have the same number of rows.")
+    if X.shape[1] == 0:
+        p = np.clip(
+            np.full_like(y01, float(y01.mean()), dtype=float), eps, 1.0 - eps
+        )
+        ll = float(
+            (y01 * np.log(p + eps) + (1.0 - y01) * np.log(1.0 - p + eps)).sum()
+        )
+        return ll, 1, p
+    clf = LogisticRegression(
+        C=1e12,
+        solver="lbfgs",
+        max_iter=8000,
+        tol=1e-7,
+        random_state=random_state,
+        fit_intercept=True,
+    )
+    clf.fit(X, y01)
+    prob = clf.predict_proba(X)[:, 1].astype(float)
+    prob = np.clip(prob, eps, 1.0 - eps)
+    ll = float(
+        (y01 * np.log(prob + eps) + (1.0 - y01) * np.log(1.0 - prob + eps)).sum()
+    )
+    k = int(X.shape[1]) + 1
+    return ll, k, prob
+
+
+def _aic_intercept_only_logistic(y01: np.ndarray, *, eps: float = 1e-15) -> float:
+    """AIC for intercept-only Bernoulli model (MLE prevalence)."""
+    n = int(y01.shape[0])
+    if n == 0:
+        return float("nan")
+    p = float(np.clip(y01.mean(), eps, 1.0 - eps))
+    ll = float(
+        (y01 * np.log(p + eps) + (1.0 - y01) * np.log(1.0 - p + eps)).sum()
+    )
+    k = 1
+    return float(2.0 * k - 2.0 * ll)
+
+
+def _bic_intercept_only_logistic(y01: np.ndarray, *, eps: float = 1e-15) -> float:
+    """BIC for intercept-only Bernoulli model (MLE prevalence). ``n = len(y01)``."""
+    n = int(y01.shape[0])
+    if n == 0:
+        return float("nan")
+    p = float(np.clip(y01.mean(), eps, 1.0 - eps))
+    ll = float(
+        (y01 * np.log(p + eps) + (1.0 - y01) * np.log(1.0 - p + eps)).sum()
+    )
+    k = 1
+    return float(k * np.log(n) - 2.0 * ll)
+
+
+def _aic_and_probs_logistic_mle(
+    X: np.ndarray,
+    y01: np.ndarray,
+    *,
+    eps: float = 1e-15,
+    random_state: int = 0,
+) -> tuple[float, np.ndarray]:
+    """
+    Fit unpenalized binary logistic regression (MLE) and return (AIC, p_hat).
+
+    ``AIC = 2k - 2 log L`` with ``k = n_features + 1`` (intercept included).
+    """
+    ll, k, prob = _logistic_fit_loglik_params_probs(
+        X, y01, eps=eps, random_state=random_state
+    )
+    return float(2.0 * k - 2.0 * ll), prob
+
+
+def _bic_and_probs_logistic_mle(
+    X: np.ndarray,
+    y01: np.ndarray,
+    *,
+    eps: float = 1e-15,
+    random_state: int = 0,
+) -> tuple[float, np.ndarray]:
+    """
+    Fit binary logistic regression (MLE) and return (BIC, p_hat).
+
+    ``BIC = k * ln(n) - 2 * log L`` (natural log) with ``k = n_features + 1`` and
+    ``n = len(y)``.
+    """
+    n = int(y01.shape[0])
+    ll, k, prob = _logistic_fit_loglik_params_probs(
+        X, y01, eps=eps, random_state=random_state
+    )
+    return float(k * np.log(n) - 2.0 * ll), prob
+
+
+def _max_pairwise_abs_corr_subset(
+    feats: list[str],
+    corr_df: pd.DataFrame,
+) -> float:
+    """Largest absolute Pearson correlation among distinct pairs in ``feats``."""
+    if len(feats) < 2:
+        return 0.0
+    mx = 0.0
+    for i in range(len(feats)):
+        for j in range(i + 1, len(feats)):
+            mx = max(mx, _abs_corr_pair(corr_df, feats[i], feats[j]))
+    return float(mx)
+
+
+def select_features_aic_backward(
+    df: pd.DataFrame,
+    cols_feat: list[str],
+    col_target: str,
+    max_corr: float = 0.5,
+) -> tuple[list[str], pd.DataFrame]:
+    """
+    Backward stepwise logistic regression minimizing AIC with a correlation cap.
+
+    Rows with missing ``col_target`` or any candidate feature (after numeric
+    coercion) are dropped. The target is coerced to numeric; the **larger**
+    distinct value is class 1. An **initial** active set is built by scanning
+    ``cols_feat`` in order and greedily keeping each feature with non-zero
+    variance whose absolute correlation to every feature already kept is at
+    most ``max_corr``. Starting from the logistic model on that set, each step
+    removes the single feature whose removal yields the **lowest** AIC among
+    all removals (tie-break by name); the step is taken only if that AIC is
+    strictly lower than before. Stops when no removal improves AIC. The same
+    ``LogisticRegression`` settings as :func:`select_features_aic_forward` apply.
+
+    Parameters
+    ----------
+    df : pd.DataFrame
+        Modeling data.
+    cols_feat : list of str
+        Candidate predictors (deduplicated, first occurrence wins).
+    col_target : str
+        Binary outcome (two distinct numeric values after coercion).
+    max_corr : float, default 0.5
+        Used when building the initial set (pairwise absolute correlation bound
+        for inclusion). Must lie in ``[0, 1]``.
+
+    Returns
+    -------
+    selected_features : list of str
+        Remaining predictors after backward elimination, ordered as in
+        ``cols_feat``.
+    history : pandas.DataFrame
+        Columns: ``step_number``, ``eliminated_feature_name``, ``max_correlation``,
+        ``total_aic``, ``delta_aic``, ``roc_auc``, ``gini``. ``max_correlation`` is the
+        maximum absolute pairwise correlation among features **still in the
+        model** after the step (``0.0`` if fewer than two remain).
+        ``delta_aic`` is ``total_aic`` after minus before the step (negative
+        means AIC decreased). ``roc_auc`` is training ROC-AUC on the reduced model;
+        ``gini`` is ``2 * roc_auc - 1`` (clipped to ``[-1, 1]``).
+
+    Raises
+    ------
+    ValueError
+        If ``cols_feat`` is empty, ``max_corr`` is outside ``[0, 1]``, required
+        columns are missing, no feature passes the initial correlation screen,
+        or after cleaning there are fewer than five rows or fewer than two
+        target classes.
+    """
+    if not cols_feat:
+        raise ValueError("cols_feat must be a non-empty list of column names.")
+
+    if max_corr < 0 or max_corr > 1:
+        raise ValueError("max_corr must be between 0 and 1 inclusive.")
+
+    order = list(dict.fromkeys(cols_feat))
+    _validate_columns(df, "select_features_aic_backward", [col_target] + order)
+
+    sub = df[[col_target] + order].apply(pd.to_numeric, errors="coerce").dropna()
+    if len(sub) < 5:
+        raise ValueError(
+            "Need at least five complete-case rows for col_target and cols_feat."
+        )
+
+    y_raw = sub[col_target].to_numpy(dtype=float)
+    if len(np.unique(y_raw)) != 2:
+        raise ValueError(
+            "col_target must have exactly two distinct numeric values on complete cases."
+        )
+    lo, hi = sorted(np.unique(y_raw).tolist())[:2]
+    y01 = (y_raw == hi).astype(int)
+
+    X_all = sub[order].to_numpy(dtype=float)
+    corr_df = pd.DataFrame(X_all, columns=order).corr(method="pearson")
+
+    var_ok = {
+        order[j]
+        for j in range(len(order))
+        if float(np.nanstd(X_all[:, j])) > 1e-12
+    }
+
+    active: list[str] = []
+    for f in order:
+        if f not in var_ok:
+            continue
+        if not active:
+            active.append(f)
+            continue
+        if max(_abs_corr_pair(corr_df, f, s) for s in active) <= max_corr:
+            active.append(f)
+
+    if not active:
+        raise ValueError(
+            "No feature could be placed in the initial model under max_corr; "
+            "relax max_corr or adjust cols_feat."
+        )
+
+    try:
+        aic_cur, prob_cur = _aic_and_probs_logistic_mle(
+            sub[active].to_numpy(dtype=float), y01
+        )
+    except Exception as exc:
+        raise ValueError(
+            "Could not fit initial logistic model on the correlation-screened set."
+        ) from exc
+
+    rows: list[dict[str, Any]] = []
+    step = 0
+
+    while True:
+        trials: list[tuple[float, str, list[str], np.ndarray]] = []
+        for v in active:
+            nxt = [x for x in active if x != v]
+            if not nxt:
+                aic_new = _aic_intercept_only_logistic(y01)
+                p0 = float(np.clip(y01.mean(), 1e-15, 1.0 - 1e-15))
+                prob = np.full_like(y01, p0, dtype=float)
+            else:
+                try:
+                    aic_new, prob = _aic_and_probs_logistic_mle(
+                        sub[nxt].to_numpy(dtype=float), y01
+                    )
+                except Exception:
+                    continue
+            if not np.isfinite(aic_new):
+                continue
+            if aic_new < aic_cur - 1e-9:
+                trials.append((aic_new, v, nxt, prob))
+
+        if not trials:
+            break
+
+        aic_new, v_out, active_next, prob = min(trials, key=lambda t: (t[0], t[1]))
+        step += 1
+        delta_aic = float(aic_new - aic_cur)
+        mx_pair = _max_pairwise_abs_corr_subset(active_next, corr_df)
+        try:
+            auc = float(roc_auc_score(y01, prob))
+        except ValueError:
+            auc = float(np.nan)
+
+        rows.append(
+            {
+                "step_number": int(step),
+                "eliminated_feature_name": v_out,
+                "max_correlation": float(mx_pair),
+                "total_aic": float(aic_new),
+                "delta_aic": float(delta_aic),
+                "roc_auc": auc,
+                "gini": _gini_binary_from_auc(auc),
+            }
+        )
+        active = active_next
+        aic_cur = float(aic_new)
+
+    selected = [f for f in order if f in active]
+    history = pd.DataFrame(
+        rows,
+        columns=[
+            "step_number",
+            "eliminated_feature_name",
+            "max_correlation",
+            "total_aic",
+            "delta_aic",
+            "roc_auc",
+            "gini",
+        ],
+    )
+    return selected, history
+
+
+def select_features_aic_forward(
+    df: pd.DataFrame,
+    cols_feat: list[str],
+    col_target: str,
+    max_corr: float = 0.5,
+) -> tuple[list[str], pd.DataFrame]:
+    """
+    Forward stepwise logistic regression minimizing AIC with a correlation cap.
+
+    Rows with missing ``col_target`` or any candidate feature (after numeric
+    coercion) are dropped. The target is coerced to numeric; the **larger**
+    distinct value is treated as class 1. At each step, among features not yet
+    selected whose absolute Pearson correlation to every already-selected
+    feature is at most ``max_corr`` (and with non-zero variance on the modeling
+    frame), the model that **strictly lowers** AIC when the feature is added is
+    chosen; ties break by feature name. Stops when no eligible feature improves
+    AIC. Fits ``LogisticRegression`` with a very large ``C`` (near-unpenalized
+    L2) so AIC from ``2k - 2 log L`` matches usual MLE stepwise practice.
+
+    Parameters
+    ----------
+    df : pd.DataFrame
+        Modeling data.
+    cols_feat : list of str
+        Candidate predictors (deduplicated, first occurrence wins).
+    col_target : str
+        Binary outcome column (two distinct numeric values after coercion).
+    max_corr : float, default 0.5
+        Maximum allowed absolute Pearson correlation between the newly added
+        feature and **each** feature already in the model. Must lie in ``[0, 1]``.
+
+    Returns
+    -------
+    selected_features : list of str
+        Names in the order they entered the model.
+    history : pandas.DataFrame
+        Columns: ``step_number``, ``added_feature_name``, ``max_correlation``,
+        ``total_aic``, ``delta_aic``, ``roc_auc``, ``gini``. ``delta_aic`` is
+        ``total_aic`` after minus before the step (negative means AIC
+        decreased). ``roc_auc`` is the training ROC-AUC of predicted
+        probabilities vs. ``y``; ``gini`` is ``2 * roc_auc - 1`` (clipped to ``[-1, 1]``).
+
+    Raises
+    ------
+    ValueError
+        If ``cols_feat`` is empty, ``max_corr`` is outside ``[0, 1]``, required
+        columns are missing, or after cleaning there are fewer than five rows
+        or fewer than two target classes.
+    """
+    if not cols_feat:
+        raise ValueError("cols_feat must be a non-empty list of column names.")
+
+    if max_corr < 0 or max_corr > 1:
+        raise ValueError("max_corr must be between 0 and 1 inclusive.")
+
+    order = list(dict.fromkeys(cols_feat))
+    _validate_columns(df, "select_features_aic_forward", [col_target] + order)
+
+    sub = df[[col_target] + order].apply(pd.to_numeric, errors="coerce").dropna()
+    if len(sub) < 5:
+        raise ValueError(
+            "Need at least five complete-case rows for col_target and cols_feat."
+        )
+
+    y_raw = sub[col_target].to_numpy(dtype=float)
+    if len(np.unique(y_raw)) != 2:
+        raise ValueError(
+            "col_target must have exactly two distinct numeric values on complete cases."
+        )
+    lo, hi = sorted(np.unique(y_raw).tolist())[:2]
+    y01 = (y_raw == hi).astype(int)
+
+    X_all = sub[order].to_numpy(dtype=float)
+    corr_df = pd.DataFrame(X_all, columns=order).corr(method="pearson")
+
+    var_ok = {
+        order[j]
+        for j in range(len(order))
+        if float(np.nanstd(X_all[:, j])) > 1e-12
+    }
+
+    selected: list[str] = []
+    aic_old = _aic_intercept_only_logistic(y01)
+    rows: list[dict[str, Any]] = []
+    step = 0
+
+    while True:
+        trials: list[tuple[float, str, float, np.ndarray]] = []
+        for f in order:
+            if f in selected or f not in var_ok:
+                continue
+            if selected:
+                peak = max(_abs_corr_pair(corr_df, f, s) for s in selected)
+                if peak > max_corr:
+                    continue
+            else:
+                peak = 0.0
+            cols = selected + [f]
+            jidx = [order.index(c) for c in cols]
+            X = X_all[:, jidx]
+            try:
+                aic_new, prob = _aic_and_probs_logistic_mle(X, y01)
+            except Exception:
+                continue
+            if not np.isfinite(aic_new):
+                continue
+            if aic_new < aic_old - 1e-9:
+                trials.append((aic_new, f, float(peak), prob))
+
+        if not trials:
+            break
+
+        aic_new, f_add, peak, prob = min(trials, key=lambda t: (t[0], t[1]))
+        step += 1
+        delta_aic = float(aic_new - aic_old)
+        try:
+            auc = float(roc_auc_score(y01, prob))
+        except ValueError:
+            auc = float(np.nan)
+
+        rows.append(
+            {
+                "step_number": int(step),
+                "added_feature_name": f_add,
+                "max_correlation": float(peak),
+                "total_aic": float(aic_new),
+                "delta_aic": float(delta_aic),
+                "roc_auc": auc,
+                "gini": _gini_binary_from_auc(auc),
+            }
+        )
+        selected.append(f_add)
+        aic_old = float(aic_new)
+
+    history = pd.DataFrame(
+        rows,
+        columns=[
+            "step_number",
+            "added_feature_name",
+            "max_correlation",
+            "total_aic",
+            "delta_aic",
+            "roc_auc",
+            "gini",
+        ],
+    )
+    return selected, history
+
+
+def select_features_bic_backward(
+    df: pd.DataFrame,
+    cols_feat: list[str],
+    col_target: str,
+    max_corr: float = 0.5,
+) -> tuple[list[str], pd.DataFrame]:
+    """
+    Backward stepwise logistic regression minimizing BIC with a correlation cap.
+
+    Same procedure as :func:`select_features_aic_backward`, but each step
+    minimizes **BIC** ``= k ln(n) - 2 log L`` on the modeling sample instead of
+    AIC. History columns use ``total_bic``, ``delta_bic``, ``roc_auc``, and ``gini``.
+    """
+    if not cols_feat:
+        raise ValueError("cols_feat must be a non-empty list of column names.")
+
+    if max_corr < 0 or max_corr > 1:
+        raise ValueError("max_corr must be between 0 and 1 inclusive.")
+
+    order = list(dict.fromkeys(cols_feat))
+    _validate_columns(df, "select_features_bic_backward", [col_target] + order)
+
+    sub = df[[col_target] + order].apply(pd.to_numeric, errors="coerce").dropna()
+    if len(sub) < 5:
+        raise ValueError(
+            "Need at least five complete-case rows for col_target and cols_feat."
+        )
+
+    y_raw = sub[col_target].to_numpy(dtype=float)
+    if len(np.unique(y_raw)) != 2:
+        raise ValueError(
+            "col_target must have exactly two distinct numeric values on complete cases."
+        )
+    lo, hi = sorted(np.unique(y_raw).tolist())[:2]
+    y01 = (y_raw == hi).astype(int)
+
+    X_all = sub[order].to_numpy(dtype=float)
+    corr_df = pd.DataFrame(X_all, columns=order).corr(method="pearson")
+
+    var_ok = {
+        order[j]
+        for j in range(len(order))
+        if float(np.nanstd(X_all[:, j])) > 1e-12
+    }
+
+    active: list[str] = []
+    for f in order:
+        if f not in var_ok:
+            continue
+        if not active:
+            active.append(f)
+            continue
+        if max(_abs_corr_pair(corr_df, f, s) for s in active) <= max_corr:
+            active.append(f)
+
+    if not active:
+        raise ValueError(
+            "No feature could be placed in the initial model under max_corr; "
+            "relax max_corr or adjust cols_feat."
+        )
+
+    try:
+        bic_cur, _ = _bic_and_probs_logistic_mle(
+            sub[active].to_numpy(dtype=float), y01
+        )
+    except Exception as exc:
+        raise ValueError(
+            "Could not fit initial logistic model on the correlation-screened set."
+        ) from exc
+
+    rows: list[dict[str, Any]] = []
+    step = 0
+
+    while True:
+        trials: list[tuple[float, str, list[str], np.ndarray]] = []
+        for v in active:
+            nxt = [x for x in active if x != v]
+            if not nxt:
+                bic_new = _bic_intercept_only_logistic(y01)
+                p0 = float(np.clip(y01.mean(), 1e-15, 1.0 - 1e-15))
+                prob = np.full_like(y01, p0, dtype=float)
+            else:
+                try:
+                    bic_new, prob = _bic_and_probs_logistic_mle(
+                        sub[nxt].to_numpy(dtype=float), y01
+                    )
+                except Exception:
+                    continue
+            if not np.isfinite(bic_new):
+                continue
+            if bic_new < bic_cur - 1e-9:
+                trials.append((bic_new, v, nxt, prob))
+
+        if not trials:
+            break
+
+        bic_new, v_out, active_next, prob = min(trials, key=lambda t: (t[0], t[1]))
+        step += 1
+        delta_bic = float(bic_new - bic_cur)
+        mx_pair = _max_pairwise_abs_corr_subset(active_next, corr_df)
+        try:
+            auc = float(roc_auc_score(y01, prob))
+        except ValueError:
+            auc = float(np.nan)
+
+        rows.append(
+            {
+                "step_number": int(step),
+                "eliminated_feature_name": v_out,
+                "max_correlation": float(mx_pair),
+                "total_bic": float(bic_new),
+                "delta_bic": float(delta_bic),
+                "roc_auc": auc,
+                "gini": _gini_binary_from_auc(auc),
+            }
+        )
+        active = active_next
+        bic_cur = float(bic_new)
+
+    selected = [f for f in order if f in active]
+    history = pd.DataFrame(
+        rows,
+        columns=[
+            "step_number",
+            "eliminated_feature_name",
+            "max_correlation",
+            "total_bic",
+            "delta_bic",
+            "roc_auc",
+            "gini",
+        ],
+    )
+    return selected, history
+
+
+def select_features_bic_forward(
+    df: pd.DataFrame,
+    cols_feat: list[str],
+    col_target: str,
+    max_corr: float = 0.5,
+) -> tuple[list[str], pd.DataFrame]:
+    """
+    Forward stepwise logistic regression minimizing BIC with a correlation cap.
+
+    Same procedure as :func:`select_features_aic_forward`, but each step
+    minimizes **BIC** ``= k ln(n) - 2 log L`` on the modeling sample instead of
+    AIC. History columns use ``total_bic``, ``delta_bic``, ``roc_auc``, and ``gini``.
+    """
+    if not cols_feat:
+        raise ValueError("cols_feat must be a non-empty list of column names.")
+
+    if max_corr < 0 or max_corr > 1:
+        raise ValueError("max_corr must be between 0 and 1 inclusive.")
+
+    order = list(dict.fromkeys(cols_feat))
+    _validate_columns(df, "select_features_bic_forward", [col_target] + order)
+
+    sub = df[[col_target] + order].apply(pd.to_numeric, errors="coerce").dropna()
+    if len(sub) < 5:
+        raise ValueError(
+            "Need at least five complete-case rows for col_target and cols_feat."
+        )
+
+    y_raw = sub[col_target].to_numpy(dtype=float)
+    if len(np.unique(y_raw)) != 2:
+        raise ValueError(
+            "col_target must have exactly two distinct numeric values on complete cases."
+        )
+    lo, hi = sorted(np.unique(y_raw).tolist())[:2]
+    y01 = (y_raw == hi).astype(int)
+
+    X_all = sub[order].to_numpy(dtype=float)
+    corr_df = pd.DataFrame(X_all, columns=order).corr(method="pearson")
+
+    var_ok = {
+        order[j]
+        for j in range(len(order))
+        if float(np.nanstd(X_all[:, j])) > 1e-12
+    }
+
+    selected: list[str] = []
+    bic_old = _bic_intercept_only_logistic(y01)
+    rows: list[dict[str, Any]] = []
+    step = 0
+
+    while True:
+        trials: list[tuple[float, str, float, np.ndarray]] = []
+        for f in order:
+            if f in selected or f not in var_ok:
+                continue
+            if selected:
+                peak = max(_abs_corr_pair(corr_df, f, s) for s in selected)
+                if peak > max_corr:
+                    continue
+            else:
+                peak = 0.0
+            cols = selected + [f]
+            jidx = [order.index(c) for c in cols]
+            X = X_all[:, jidx]
+            try:
+                bic_new, prob = _bic_and_probs_logistic_mle(X, y01)
+            except Exception:
+                continue
+            if not np.isfinite(bic_new):
+                continue
+            if bic_new < bic_old - 1e-9:
+                trials.append((bic_new, f, float(peak), prob))
+
+        if not trials:
+            break
+
+        bic_new, f_add, peak, prob = min(trials, key=lambda t: (t[0], t[1]))
+        step += 1
+        delta_bic = float(bic_new - bic_old)
+        try:
+            auc = float(roc_auc_score(y01, prob))
+        except ValueError:
+            auc = float(np.nan)
+
+        rows.append(
+            {
+                "step_number": int(step),
+                "added_feature_name": f_add,
+                "max_correlation": float(peak),
+                "total_bic": float(bic_new),
+                "delta_bic": float(delta_bic),
+                "roc_auc": auc,
+                "gini": _gini_binary_from_auc(auc),
+            }
+        )
+        selected.append(f_add)
+        bic_old = float(bic_new)
+
+    history = pd.DataFrame(
+        rows,
+        columns=[
+            "step_number",
+            "added_feature_name",
+            "max_correlation",
+            "total_bic",
+            "delta_bic",
+            "roc_auc",
+            "gini",
+        ],
+    )
+    return selected, history
+
+
+def _roc_auc_and_probs_logistic_train(
+    X: np.ndarray,
+    y01: np.ndarray,
+    *,
+    random_state: int = 0,
+) -> tuple[float, np.ndarray]:
+    """Fit logistic (large ``C``) and return ``(train ROC-AUC, p_hat)``."""
+    _ll, _k, prob = _logistic_fit_loglik_params_probs(
+        X, y01, random_state=random_state
+    )
+    try:
+        auc = float(roc_auc_score(y01, prob))
+    except ValueError:
+        auc = float(np.nan)
+    return auc, prob
+
+
+def _gini_binary_from_auc(auc: float) -> float:
+    """Binary Gini from ROC-AUC: ``Gini = 2 * AUC - 1`` (clipped to ``[-1, 1]``)."""
+    if auc is None or not np.isfinite(auc):
+        return float(np.nan)
+    return float(np.clip(2.0 * float(auc) - 1.0, -1.0, 1.0))
+
+
+def select_features_auc_backward(
+    df: pd.DataFrame,
+    cols_feat: list[str],
+    col_target: str,
+    max_corr: float = 0.5,
+) -> tuple[list[str], pd.DataFrame]:
+    """
+    Backward stepwise logistic regression maximizing training ROC-AUC.
+
+    Same initial correlation screen as :func:`select_features_aic_backward`.
+    Each step removes the feature whose removal yields the **highest** training
+    ROC-AUC among all single removals (tie-break: lexicographically smallest
+    eliminated name),     provided that AUC **strictly increases** versus the
+    current model. Stops when no removal improves training ROC-AUC.
+
+    Parameters
+    ----------
+    df : pd.DataFrame
+        Modeling data.
+    cols_feat : list of str
+        Candidate predictors (deduplicated, first occurrence wins).
+    col_target : str
+        Binary outcome (two distinct numeric values after coercion).
+    max_corr : float, default 0.5
+        Initial-set correlation bound; must lie in ``[0, 1]``.
+
+    Returns
+    -------
+    selected_features : list of str
+        Remaining predictors after backward steps, ordered as in ``cols_feat``.
+    history : pandas.DataFrame
+        Columns ``step_number``, ``feature_name`` (eliminated at that step),
+        ``max_correlation``, ``delta_auc``, ``roc_auc``, ``gini``.
+    """
+    if not cols_feat:
+        raise ValueError("cols_feat must be a non-empty list of column names.")
+
+    if max_corr < 0 or max_corr > 1:
+        raise ValueError("max_corr must be between 0 and 1 inclusive.")
+
+    order = list(dict.fromkeys(cols_feat))
+    _validate_columns(df, "select_features_auc_backward", [col_target] + order)
+
+    sub = df[[col_target] + order].apply(pd.to_numeric, errors="coerce").dropna()
+    if len(sub) < 5:
+        raise ValueError(
+            "Need at least five complete-case rows for col_target and cols_feat."
+        )
+
+    y_raw = sub[col_target].to_numpy(dtype=float)
+    if len(np.unique(y_raw)) != 2:
+        raise ValueError(
+            "col_target must have exactly two distinct numeric values on complete cases."
+        )
+    lo, hi = sorted(np.unique(y_raw).tolist())[:2]
+    y01 = (y_raw == hi).astype(int)
+
+    X_all = sub[order].to_numpy(dtype=float)
+    corr_df = pd.DataFrame(X_all, columns=order).corr(method="pearson")
+
+    var_ok = {
+        order[j]
+        for j in range(len(order))
+        if float(np.nanstd(X_all[:, j])) > 1e-12
+    }
+
+    active: list[str] = []
+    for f in order:
+        if f not in var_ok:
+            continue
+        if not active:
+            active.append(f)
+            continue
+        if max(_abs_corr_pair(corr_df, f, s) for s in active) <= max_corr:
+            active.append(f)
+
+    if not active:
+        raise ValueError(
+            "No feature could be placed in the initial model under max_corr; "
+            "relax max_corr or adjust cols_feat."
+        )
+
+    try:
+        auc_cur, _ = _roc_auc_and_probs_logistic_train(
+            sub[active].to_numpy(dtype=float), y01
+        )
+    except Exception as exc:
+        raise ValueError(
+            "Could not fit initial logistic model on the correlation-screened set."
+        ) from exc
+
+    if not np.isfinite(auc_cur):
+        raise ValueError("Initial model ROC-AUC is undefined on this sample.")
+
+    rows: list[dict[str, Any]] = []
+    step = 0
+
+    while True:
+        trials: list[tuple[float, str, list[str], np.ndarray]] = []
+        for v in active:
+            nxt = [x for x in active if x != v]
+            if not nxt:
+                _, prob = _roc_auc_and_probs_logistic_train(
+                    np.empty((len(y01), 0), dtype=float), y01
+                )
+                try:
+                    auc_new = float(roc_auc_score(y01, prob))
+                except ValueError:
+                    auc_new = float(np.nan)
+            else:
+                try:
+                    auc_new, prob = _roc_auc_and_probs_logistic_train(
+                        sub[nxt].to_numpy(dtype=float), y01
+                    )
+                except Exception:
+                    continue
+            if not np.isfinite(auc_new):
+                continue
+            if auc_new > auc_cur + 1e-9:
+                trials.append((auc_new, v, nxt, prob))
+
+        if not trials:
+            break
+
+        auc_new, v_out, active_next, prob = sorted(
+            trials, key=lambda t: (-t[0], t[1])
+        )[0]
+        step += 1
+        delta_auc = float(auc_new - auc_cur)
+        mx_pair = _max_pairwise_abs_corr_subset(active_next, corr_df)
+        gini = _gini_binary_from_auc(auc_new)
+
+        rows.append(
+            {
+                "step_number": int(step),
+                "feature_name": v_out,
+                "max_correlation": float(mx_pair),
+                "delta_auc": float(delta_auc),
+                "roc_auc": float(auc_new),
+                "gini": gini,
+            }
+        )
+        active = active_next
+        auc_cur = float(auc_new)
+
+    selected = [f for f in order if f in active]
+    history = pd.DataFrame(
+        rows,
+        columns=[
+            "step_number",
+            "feature_name",
+            "max_correlation",
+            "delta_auc",
+            "roc_auc",
+            "gini",
+        ],
+    )
+    return selected, history
+
+
+def select_features_auc_forward(
+    df: pd.DataFrame,
+    cols_feat: list[str],
+    col_target: str,
+    max_corr: float = 0.5,
+) -> tuple[list[str], pd.DataFrame]:
+    """
+    Forward stepwise logistic regression maximizing training ROC-AUC.
+
+    Same correlation rule as :func:`select_features_aic_forward`. Starts from
+    an intercept-only probability; each step adds the eligible feature whose
+    inclusion yields the **highest** training ROC-AUC, provided AUC **strictly
+    increases** (tie-break: lexicographically smallest added name). Stops
+    when no candidate improves AUC.
+
+    Parameters
+    ----------
+    df : pd.DataFrame
+        Modeling data.
+    cols_feat : list of str
+        Candidate predictors (deduplicated, first occurrence wins).
+    col_target : str
+        Binary outcome column (two distinct numeric values after coercion).
+    max_corr : float, default 0.5
+        Maximum absolute Pearson correlation to each already-selected feature.
+        Must lie in ``[0, 1]``.
+
+    Returns
+    -------
+    selected_features : list of str
+        Names in the order they entered the model.
+    history : pandas.DataFrame
+        Columns ``step_number``, ``feature_name`` (added at that step),
+        ``max_correlation``, ``delta_auc``, ``roc_auc``, ``gini``.
+    """
+    if not cols_feat:
+        raise ValueError("cols_feat must be a non-empty list of column names.")
+
+    if max_corr < 0 or max_corr > 1:
+        raise ValueError("max_corr must be between 0 and 1 inclusive.")
+
+    order = list(dict.fromkeys(cols_feat))
+    _validate_columns(df, "select_features_auc_forward", [col_target] + order)
+
+    sub = df[[col_target] + order].apply(pd.to_numeric, errors="coerce").dropna()
+    if len(sub) < 5:
+        raise ValueError(
+            "Need at least five complete-case rows for col_target and cols_feat."
+        )
+
+    y_raw = sub[col_target].to_numpy(dtype=float)
+    if len(np.unique(y_raw)) != 2:
+        raise ValueError(
+            "col_target must have exactly two distinct numeric values on complete cases."
+        )
+    lo, hi = sorted(np.unique(y_raw).tolist())[:2]
+    y01 = (y_raw == hi).astype(int)
+
+    X_all = sub[order].to_numpy(dtype=float)
+    corr_df = pd.DataFrame(X_all, columns=order).corr(method="pearson")
+
+    var_ok = {
+        order[j]
+        for j in range(len(order))
+        if float(np.nanstd(X_all[:, j])) > 1e-12
+    }
+
+    auc_old, _ = _roc_auc_and_probs_logistic_train(
+        np.empty((len(y01), 0), dtype=float), y01
+    )
+    if not np.isfinite(auc_old):
+        auc_old = 0.5
+
+    selected: list[str] = []
+    rows: list[dict[str, Any]] = []
+    step = 0
+
+    while True:
+        trials: list[tuple[float, str, float, np.ndarray]] = []
+        for f in order:
+            if f in selected or f not in var_ok:
+                continue
+            if selected:
+                peak = max(_abs_corr_pair(corr_df, f, s) for s in selected)
+                if peak > max_corr:
+                    continue
+            else:
+                peak = 0.0
+            cols = selected + [f]
+            jidx = [order.index(c) for c in cols]
+            X = X_all[:, jidx]
+            try:
+                auc_new, prob = _roc_auc_and_probs_logistic_train(X, y01)
+            except Exception:
+                continue
+            if not np.isfinite(auc_new):
+                continue
+            if auc_new > auc_old + 1e-9:
+                trials.append((auc_new, f, float(peak), prob))
+
+        if not trials:
+            break
+
+        auc_new, f_add, peak, prob = sorted(
+            trials, key=lambda t: (-t[0], t[1])
+        )[0]
+        step += 1
+        delta_auc = float(auc_new - auc_old)
+        gini = _gini_binary_from_auc(auc_new)
+
+        rows.append(
+            {
+                "step_number": int(step),
+                "feature_name": f_add,
+                "max_correlation": float(peak),
+                "delta_auc": float(delta_auc),
+                "roc_auc": float(auc_new),
+                "gini": gini,
+            }
+        )
+        selected.append(f_add)
+        auc_old = float(auc_new)
+
+    history = pd.DataFrame(
+        rows,
+        columns=[
+            "step_number",
+            "feature_name",
+            "max_correlation",
+            "delta_auc",
+            "roc_auc",
+            "gini",
+        ],
+    )
+    return selected, history
 
 
 def get_score_predictive_power_timely(
@@ -2285,6 +3297,12 @@ __all__ = [
     "get_feature_predictive_power",
     "select_features_auc_max_corr",
     "select_features_iv_max_corr",
+    "select_features_aic_forward",
+    "select_features_aic_backward",
+    "select_features_bic_forward",
+    "select_features_bic_backward",
+    "select_features_auc_backward",
+    "select_features_auc_forward",
     "get_feature_predictive_power_timely",
     "get_score_predictive_power_timely",
     "get_score_predictive_power_data_type",
