@@ -20,6 +20,8 @@ class AgentMemory(BaseModel):
     Memory for the agent to store information.
     """
     metadata: dict = {}
+    dict_bin: dict = {}
+
     model_config = ConfigDict(
         validate_assignment=True,
         extra='allow',
@@ -30,6 +32,11 @@ class AgentMemory(BaseModel):
     cols_feat_time: list[str] = []
     cols_feat_num: list[str] = []
     cols_feat_woe: list[str] = []
+    features_issue_woe: list[str] = []
+    features_issue_binning_tables: list[str] = []
+    binning_feature_issues: list[str] = []
+    binning_feature_issues: list[str] = []
+
     hoot_th: int = 0
     oot_th: int = 0
     col_target: str = ""
@@ -45,7 +52,10 @@ class AgentMemory(BaseModel):
     df_nan_rate: pd.DataFrame = pd.DataFrame()
     df_target_rate_per_sample: pd.DataFrame = pd.DataFrame()
     df_binning_stats: pd.DataFrame = pd.DataFrame()
-    dict_bin: dict = {}
+    df_binning_tables: pd.DataFrame = pd.DataFrame()
+    df_woe: pd.DataFrame = pd.DataFrame()
+
+    # Object of any class
     bp: Any = None
 
 
@@ -729,6 +739,325 @@ def get_feature_predictive_power(
     return out
 
 
+def _standardized_binary_auc(auc: float) -> float:
+    """Map univariate binary ROC AUC to [0.5, 1] strength (invert if below 0.5)."""
+    if auc is None or not np.isfinite(auc):
+        return float(np.nan)
+    if auc < 0.5:
+        return float(1.0 - auc)
+    return float(auc)
+
+
+def _abs_corr_pair(corr: pd.DataFrame, a: str, b: str) -> float:
+    """Absolute Pearson correlation between rows ``a`` and ``b``; NaN treated as 0."""
+    if a not in corr.index or b not in corr.index:
+        return 0.0
+    v = corr.loc[a, b]
+    if pd.isna(v):
+        return 0.0
+    return abs(float(v))
+
+
+def select_features_auc_max_corr(
+    df: pd.DataFrame,
+    cols_feat: list[str],
+    col_target: str,
+    max_corr: float = 0.5,
+) -> tuple[list[str], pd.DataFrame]:
+    """
+    Greedy feature selection by standardized ROC AUC with a correlation cap.
+
+    Univariate binary ROC AUC is computed per feature (same semantics as
+    :func:`_roc_auc_binary_feature`). The **standardized** score is ``auc`` if
+    ``auc >= 0.5``, else ``1 - auc``. Features are ranked by standardized AUC
+    (descending); a greedy pass keeps a feature only if its absolute Pearson
+    correlation to **every** already-selected feature is at most ``max_corr``
+    (using pairwise-complete numeric coercion on ``df`` for the correlation
+    matrix). The returned feature list is then re-sorted by standardized AUC
+    (descending).
+
+    Parameters
+    ----------
+    df : pd.DataFrame
+        Input data.
+    cols_feat : list of str
+        Candidate feature columns (deduplicated, first occurrence wins).
+    col_target : str
+        Binary target column (two classes after numeric coercion; see
+        :func:`get_feature_predictive_power`).
+    max_corr : float, default 0.5
+        Maximum allowed absolute Pearson correlation between any pair of
+        selected features. Must lie in ``[0, 1]``.
+
+    Returns
+    -------
+    selected_features : list of str
+        Selected names sorted by standardized AUC descending.
+    summary : pandas.DataFrame
+        Columns ``feature_name``, ``max_correlation``, ``auc_roc``,
+        ``standardized_auc_roc``. One row per selected feature, in the same
+        order as ``selected_features``. ``max_correlation`` is the largest
+        absolute correlation between that feature and another selected feature
+        (``0.0`` when only one feature is selected).
+
+    Raises
+    ------
+    ValueError
+        If ``cols_feat`` is empty, ``max_corr`` is outside ``[0, 1]``, or
+        required columns are missing from ``df``.
+    """
+    if not cols_feat:
+        raise ValueError("cols_feat must be a non-empty list of column names.")
+
+    if max_corr < 0 or max_corr > 1:
+        raise ValueError("max_corr must be between 0 and 1 inclusive.")
+
+    order = list(dict.fromkeys(cols_feat))
+    _validate_columns(df, "select_features_auc_max_corr", [col_target] + order)
+
+    auc_by_feat: dict[str, float] = {}
+    for name in order:
+        auc_by_feat[name] = _roc_auc_binary_feature(df[col_target], df[name])
+
+    usable = [n for n in order if np.isfinite(auc_by_feat[n])]
+    if not usable:
+        empty = pd.DataFrame(
+            columns=[
+                "feature_name",
+                "max_correlation",
+                "auc_roc",
+                "standardized_auc_roc",
+            ]
+        )
+        return [], empty
+
+    std_by_feat = {n: _standardized_binary_auc(auc_by_feat[n]) for n in usable}
+    X_num = df[usable].apply(pd.to_numeric, errors="coerce")
+    corr = X_num.corr(method="pearson")
+
+    ranked = sorted(usable, key=lambda f: (-std_by_feat[f], f))
+
+    selected: list[str] = []
+    for f in ranked:
+        if not selected:
+            selected.append(f)
+            continue
+        peak = max(_abs_corr_pair(corr, f, s) for s in selected)
+        if peak <= max_corr:
+            selected.append(f)
+
+    selected_sorted = sorted(selected, key=lambda f: (-std_by_feat[f], f))
+
+    rows: list[dict[str, Any]] = []
+    for f in selected_sorted:
+        others = [s for s in selected_sorted if s != f]
+        if not others:
+            mx = 0.0
+        else:
+            mx = max(_abs_corr_pair(corr, f, s) for s in others)
+        rows.append(
+            {
+                "feature_name": f,
+                "max_correlation": float(mx),
+                "auc_roc": float(auc_by_feat[f]),
+                "standardized_auc_roc": float(std_by_feat[f]),
+            }
+        )
+
+    summary = pd.DataFrame(
+        rows,
+        columns=[
+            "feature_name",
+            "max_correlation",
+            "auc_roc",
+            "standardized_auc_roc",
+        ],
+    )
+    return selected_sorted, summary
+
+
+def _iv_binary_from_woe_column(
+    y: pd.Series,
+    woe: pd.Series,
+    *,
+    n_bins: int = 10,
+) -> float:
+    """
+    Information value for a binary label vs. a WoE column via quantile bins.
+
+    ``y`` is coerced to numeric; the larger of the two distinct classes is
+    treated as the event (1). ``woe`` is coerced to numeric. Rows with missing
+    ``y`` or ``woe`` are dropped. ``woe`` is split into at most ``n_bins``
+    quantile bins (``pd.qcut``, ``duplicates='drop'``), then IV is
+
+    ``sum_i (dist_non_event_i - dist_event_i) * ln((dist_non_event_i + eps) /
+    (dist_event_i + eps))`` over bins, matching the usual weight-of-evidence
+    total IV for a binned numeric characteristic.
+    """
+    yn = pd.to_numeric(y, errors="coerce")
+    w = pd.to_numeric(woe, errors="coerce")
+    valid = yn.notna() & w.notna()
+    if int(valid.sum()) < 2:
+        return float(np.nan)
+    yn2 = yn.loc[valid]
+    x = w.loc[valid]
+    if yn2.nunique() != 2:
+        return float(np.nan)
+    lo, hi = sorted(yn2.unique().tolist())[:2]
+    y_ev = (yn2 == hi).to_numpy(dtype=int)
+    total_e = int(y_ev.sum())
+    total_ne = int(len(y_ev) - total_e)
+    if total_e == 0 or total_ne == 0:
+        return float(np.nan)
+    n_q = min(int(n_bins), int(x.nunique(dropna=True)))
+    if n_q < 2:
+        return float(np.nan)
+    try:
+        bins = pd.qcut(x, q=n_q, duplicates="drop")
+    except (ValueError, TypeError):
+        return float(np.nan)
+    ep = 1e-10
+    iv = 0.0
+    for b in bins.cat.categories:
+        m = (bins == b).to_numpy()
+        e = int(y_ev[m].sum())
+        ne = int(m.sum() - e)
+        dist_e = e / total_e
+        dist_ne = ne / total_ne
+        woe_i = np.log((dist_ne + ep) / (dist_e + ep))
+        iv += (dist_ne - dist_e) * woe_i
+    return float(iv)
+
+
+def select_features_iv_max_corr(
+    df: pd.DataFrame,
+    cols_feat_woe: list[str],
+    col_target: str,
+    max_corr: float = 0.5,
+) -> tuple[list[str], pd.DataFrame]:
+    """
+    Greedy feature selection by information value (IV) with a correlation cap.
+
+    IV is computed on each WoE-like column by quantile-binning the values and
+    applying the standard binary IV formula (event = numerically higher of the
+    two ``col_target`` classes). Univariate binary ROC AUC uses
+    :func:`_roc_auc_binary_feature` on ``(col_target, column)``. The **standardized**
+    AUC is ``auc`` if ``auc >= 0.5``, else ``1 - auc``. Features are ranked by
+    IV (descending); a greedy pass keeps a feature only if its absolute Pearson
+    correlation to every already-selected feature is at most ``max_corr``. The
+    returned list is re-sorted by IV (descending).
+
+    Parameters
+    ----------
+    df : pd.DataFrame
+        Input data (typically includes WoE-encoded feature columns).
+    cols_feat_woe : list of str
+        Candidate WoE columns (deduplicated, first occurrence wins).
+    col_target : str
+        Binary target (two classes after numeric coercion; see
+        :func:`get_feature_predictive_power`).
+    max_corr : float, default 0.5
+        Maximum allowed absolute Pearson correlation between any pair of
+        selected features. Must lie in ``[0, 1]``.
+
+    Returns
+    -------
+    selected_features : list of str
+        Selected names sorted by IV descending.
+    summary : pandas.DataFrame
+        Columns ``feature_name``, ``max_correlation``, ``iv``, ``auc_roc``,
+        ``standardized_auc_roc``. One row per selected feature, same order as
+        ``selected_features``. ``max_correlation`` is the largest absolute
+        correlation vs. other selected features (``0.0`` if only one selected).
+
+    Raises
+    ------
+    ValueError
+        If ``cols_feat_woe`` is empty, ``max_corr`` is outside ``[0, 1]``, or
+        required columns are missing from ``df``.
+
+    Notes
+    -----
+    IV depends on the chosen quantile bin count (fixed at 10); it approximates
+    the IV of the underlying score treated as a continuous characteristic.
+    """
+    if not cols_feat_woe:
+        raise ValueError(
+            "cols_feat_woe must be a non-empty list of column names."
+        )
+
+    if max_corr < 0 or max_corr > 1:
+        raise ValueError("max_corr must be between 0 and 1 inclusive.")
+
+    order = list(dict.fromkeys(cols_feat_woe))
+    _validate_columns(df, "select_features_iv_max_corr", [col_target] + order)
+
+    iv_by_feat: dict[str, float] = {}
+    auc_by_feat: dict[str, float] = {}
+    for name in order:
+        iv_by_feat[name] = _iv_binary_from_woe_column(df[col_target], df[name])
+        auc_by_feat[name] = _roc_auc_binary_feature(df[col_target], df[name])
+
+    usable = [n for n in order if np.isfinite(iv_by_feat[n])]
+    if not usable:
+        empty = pd.DataFrame(
+            columns=[
+                "feature_name",
+                "max_correlation",
+                "iv",
+                "auc_roc",
+                "standardized_auc_roc",
+            ]
+        )
+        return [], empty
+
+    std_by_feat = {n: _standardized_binary_auc(auc_by_feat[n]) for n in usable}
+    X_num = df[usable].apply(pd.to_numeric, errors="coerce")
+    corr = X_num.corr(method="pearson")
+
+    ranked = sorted(usable, key=lambda f: (-iv_by_feat[f], f))
+
+    selected: list[str] = []
+    for f in ranked:
+        if not selected:
+            selected.append(f)
+            continue
+        peak = max(_abs_corr_pair(corr, f, s) for s in selected)
+        if peak <= max_corr:
+            selected.append(f)
+
+    selected_sorted = sorted(selected, key=lambda f: (-iv_by_feat[f], f))
+
+    rows: list[dict[str, Any]] = []
+    for f in selected_sorted:
+        others = [s for s in selected_sorted if s != f]
+        if not others:
+            mx = 0.0
+        else:
+            mx = max(_abs_corr_pair(corr, f, s) for s in others)
+        rows.append(
+            {
+                "feature_name": f,
+                "max_correlation": float(mx),
+                "iv": float(iv_by_feat[f]),
+                "auc_roc": float(auc_by_feat[f]),
+                "standardized_auc_roc": float(std_by_feat[f]),
+            }
+        )
+
+    summary = pd.DataFrame(
+        rows,
+        columns=[
+            "feature_name",
+            "max_correlation",
+            "iv",
+            "auc_roc",
+            "standardized_auc_roc",
+        ],
+    )
+    return selected_sorted, summary
+
+
 def get_score_predictive_power_timely(
     df: pd.DataFrame,
     col_score: str,
@@ -991,7 +1320,7 @@ def get_optimal_bin(
     min_nbin: int = 2,
     max_nbin: int = 6,
     cols_feat_cat: list[str] | None = None,
-) -> tuple[dict[str, Any], Any, pd.DataFrame]:
+) -> tuple[dict[str, Any], Any, pd.DataFrame, list[str]]:
     """
     Fit supervised optimal binning (optbinning) for multiple features.
 
@@ -1000,13 +1329,18 @@ def get_optimal_bin(
     summary table (IV, Gini, etc.). Requires the optional dependency
     ``optbinning`` (``pip install optbinning``).
 
+    Only feature names that exist in ``df`` are fit; any problem with requested
+    feature configuration is listed in the fourth return value (see Returns).
+
     ``col_target`` is required (supervised binning); it is placed after
     ``cols_feat`` so call order stays ``(df, features, target, …)``.
 
     Parameters
     ----------
     df : pd.DataFrame
-        Training-like frame containing all feature columns and the target.
+        Training-like frame containing feature columns and the target. Missing
+        ``cols_feat`` / ``cols_feat_cat`` entries are reported in
+        ``feature_issues`` and omitted from the fit.
     cols_feat : list of str
         Feature columns to bin jointly in one ``BinningProcess``.
     col_target : str
@@ -1017,9 +1351,10 @@ def get_optimal_bin(
     max_nbin : int, default 6
         Maximum bins per variable (passed as ``max_n_bins``).
     cols_feat_cat : list of str, optional
-        Subset of ``cols_feat`` to treat as **categorical** (nominal) in
-        optbinning (including numeric codes stored as numbers that should be
-        treated as categorical). Must be a subset of ``cols_feat``. Pass
+        Names to treat as **categorical** (nominal) in optbinning (including
+        numeric codes stored as numbers that should be treated as categorical).
+        Entries not listed in ``cols_feat`` or missing from ``df`` are recorded
+        in ``feature_issues`` and ignored for the categorical override. Pass
         ``None`` or ``[]`` if none.
 
     Returns
@@ -1036,21 +1371,28 @@ def get_optimal_bin(
     binning_stats : pandas.DataFrame
         Copy of ``BinningProcess.summary()`` (columns typically include
         ``name``, ``dtype``, ``status``, ``selected``, ``n_bins``, ``iv``,
-        ``js``, ``gini``, ``quality_score``).
+        ``js``, ``gini``, ``quality_score``). Empty when no usable feature
+        columns remain after validation.
+    feature_issues : list of str
+        Deduplicated names, in order of discovery: entries from ``cols_feat``
+        missing from ``df``; then entries from ``cols_feat_cat`` not listed in
+        ``cols_feat``; then entries from ``cols_feat_cat`` that are in
+        ``cols_feat`` but missing from ``df``. Empty when there are no such
+        problems.
 
     Raises
     ------
     ImportError
         If ``optbinning`` is not installed.
     ValueError
-        For invalid arguments, empty ``cols_feat``, inconsistent
-        ``cols_feat_cat``, invalid bin counts, or insufficient non-null target
-        rows.
+        For invalid arguments, empty ``cols_feat``, invalid bin counts,
+        insufficient non-null target rows, or ``col_target`` missing from
+        ``df``.
 
     Notes
     -----
-    - **Agent / MCP:** return is a 3-tuple; JSON serializers may need to handle
-      ``dict_bin`` only and pickle ``model`` separately.
+    - **Agent / MCP:** return is a 4-tuple; JSON serializers may need to handle
+      ``dict_bin`` and ``feature_issues`` only and pickle ``model`` separately.
     - Uses ``fit(..., check_input=False)`` like common sklearn-style examples;
       ensure ``df`` is already cleaned if strict validation is required.
 
@@ -1070,7 +1412,7 @@ def get_optimal_bin(
                 "y": (rng.random(n) > 0.65).astype(int),
             }
         )
-        d_bin, proc, stats = get_optimal_bin(d, ["x1", "x2"], "y", 2, 5, ["x2"])
+        d_bin, proc, stats, issues = get_optimal_bin(d, ["x1", "x2"], "y", 2, 5, ["x2"])
     """
     try:
         from optbinning import BinningProcess
@@ -1086,26 +1428,47 @@ def get_optimal_bin(
     if min_nbin < 1 or max_nbin < min_nbin:
         raise ValueError("Require 1 <= min_nbin <= max_nbin.")
 
-    feat_cols = list(cols_feat)
-    cat_list = list(cols_feat_cat) if cols_feat_cat else []
-    extra = [c for c in cat_list if c not in feat_cols]
-    if extra:
-        raise ValueError(f"cols_feat_cat entries must be in cols_feat; unknown: {extra}")
+    feat_order = list(dict.fromkeys(cols_feat))
+    cat_order = list(dict.fromkeys(cols_feat_cat)) if cols_feat_cat else []
+    feat_set = set(feat_order)
 
-    _validate_columns(df, "df", feat_cols + [col_target])
+    feature_issues: list[str] = []
+    _issue_seen: set[str] = set()
+
+    def _push_issue(n: str) -> None:
+        if n not in _issue_seen:
+            _issue_seen.add(n)
+            feature_issues.append(n)
+
+    for c in feat_order:
+        if c not in df.columns:
+            _push_issue(c)
+    for c in cat_order:
+        if c not in feat_set:
+            _push_issue(c)
+        elif c not in df.columns:
+            _push_issue(c)
+
+    valid_feats = [c for c in feat_order if c in df.columns]
+    cat_for_bp = [c for c in cat_order if c in feat_set and c in df.columns]
+
+    _validate_columns(df, "df", [col_target])
+
+    if not valid_feats:
+        return {}, None, pd.DataFrame(), feature_issues
 
     mask = df[col_target].notna()
     if int(mask.sum()) < 2:
         raise ValueError("Need at least two rows with non-null col_target to fit binning.")
 
-    X = df.loc[mask, feat_cols]
+    X = df.loc[mask, valid_feats]
     y = df.loc[mask, col_target]
 
     bp = BinningProcess(
-        variable_names=feat_cols,
+        variable_names=valid_feats,
         min_n_bins=min_nbin,
         max_n_bins=max_nbin,
-        categorical_variables=cat_list if cat_list else None,
+        categorical_variables=cat_for_bp if cat_for_bp else None,
     )
     bp.fit(X, y, check_input=False)
 
@@ -1117,7 +1480,420 @@ def get_optimal_bin(
         optb = bp.get_binned_variable(name)
         dict_bin[str(name)] = _serialize_optbinning_splits(optb)
 
-    return dict_bin, bp, binning_stats
+    return dict_bin, bp, binning_stats, feature_issues
+
+
+def _dict_bin_splits_well_formed(splits: Any, is_categorical: bool) -> bool:
+    """Return True if ``dict_bin`` entry can be passed to optbinning as user splits."""
+    if splits is None:
+        return False
+    if not isinstance(splits, (list, tuple)):
+        return False
+    if is_categorical:
+        if len(splits) == 0:
+            return False
+
+        def _is_bin_piece(b: Any) -> bool:
+            if isinstance(b, (str, bytes)):
+                return False
+            if isinstance(b, (list, tuple, np.ndarray)):
+                return True
+            return hasattr(b, "__iter__") and hasattr(b, "__len__")
+
+        return all(_is_bin_piece(b) for b in splits)
+    for z in splits:
+        if isinstance(z, (bool, np.bool_)):
+            return False
+        if not isinstance(z, (int, float, np.integer, np.floating)):
+            return False
+        if isinstance(z, float) and np.isnan(float(z)):
+            return False
+    return True
+
+
+def _optimal_binning_class_for_target_type(target_kind: str) -> Any:
+    try:
+        from optbinning import (
+            ContinuousOptimalBinning,
+            MulticlassOptimalBinning,
+            OptimalBinning,
+        )
+    except ImportError as exc:  # pragma: no cover - optional dependency
+        raise ImportError(
+            "modify_optimal_bin requires the 'optbinning' package. "
+            "Install with: pip install optbinning"
+        ) from exc
+    if target_kind == "binary":
+        return OptimalBinning
+    if target_kind == "continuous":
+        return ContinuousOptimalBinning
+    if target_kind == "multiclass":
+        return MulticlassOptimalBinning
+    raise ValueError(
+        f"Target type {target_kind!r} is not supported for modify_optimal_bin "
+        '(expected "binary", "continuous", or "multiclass").'
+    )
+
+
+def _coerce_categorical_user_splits(
+    splits: list[Any] | tuple[Any, ...],
+) -> list[list[Any]]:
+    """Normalize ``dict_bin`` categorical splits to list-of-lists for optbinning."""
+    out: list[list[Any]] = []
+    for b in splits:
+        if isinstance(b, np.ndarray):
+            out.append(b.tolist())
+        elif isinstance(b, (list, tuple)):
+            out.append(list(b))
+        else:
+            out.append(np.asarray(b).tolist())
+    return out
+
+
+def _optb_from_dict_bin_splits(
+    name: str,
+    dtype: str,
+    splits: list[Any] | tuple[Any, ...],
+    OptB: Any,
+) -> Any:
+    """Construct an unfitted optbinning object using serialized ``dict_bin`` splits."""
+    if dtype == "categorical":
+        user_splits = _coerce_categorical_user_splits(splits)
+        return OptB(name=name, dtype="categorical", user_splits=user_splits)
+    arr = np.asarray(splits, dtype=float)
+    if arr.size == 0:
+        return OptB(name=name, dtype="numerical")
+    fixed = [True] * int(arr.shape[0])
+    return OptB(
+        name=name,
+        dtype="numerical",
+        user_splits=arr,
+        user_splits_fixed=fixed,
+    )
+
+
+def modify_optimal_bin(
+    df: pd.DataFrame,
+    dict_bin: dict[str, Any],
+    cols_feat: list[str],
+    col_target: str,
+    cols_feat_cat: list[str] | None = None,
+) -> tuple[Any, pd.DataFrame, list[str]]:
+    """
+    Rebuild a ``BinningProcess`` from ``df`` and serialized splits in ``dict_bin``.
+
+    For each usable feature, fits an ``OptimalBinning``-family object with
+    ``user_splits`` taken from ``dict_bin`` (same format as produced by
+    :func:`get_optimal_bin`), then assembles a process via
+    ``BinningProcess.fit_from_dict``. Requires a target column for supervised
+    statistics.
+
+    Parameters
+    ----------
+    df : pd.DataFrame
+        Data used to refit binning (typically train or another sample).
+    dict_bin : dict[str, Any]
+        Maps feature names to serialized splits (numeric: list of cut points;
+        categorical: list of category lists per bin), as from
+        :func:`get_optimal_bin`.
+    cols_feat : list of str
+        Feature names to include (deduplicated, order preserved).
+    col_target : str
+        Target column in ``df`` (supervised refit).
+    cols_feat_cat : list of str, optional
+        Subset of ``cols_feat`` to treat as categorical. Entries not in
+        ``cols_feat`` or missing from ``df`` are recorded in the issues list.
+
+    Returns
+    -------
+    bp : BinningProcess or None
+        Fitted process, or ``None`` if no variable could be fit.
+    binning_stats : pandas.DataFrame
+        ``bp.summary()`` copy with ``gini_power`` added (same convention as
+        :func:`get_optimal_bin`). Empty if ``bp`` is ``None``.
+    feature_issues : list of str
+        Deduplicated problem feature names: missing from ``df``, absent from
+        ``dict_bin``, malformed ``dict_bin`` entry, listed as categorical but
+        not in ``cols_feat``, categorical-only problems in ``cols_feat_cat``,
+        incompatible with multiclass target, or fit-time failure.
+
+    Raises
+    ------
+    ImportError
+        If ``optbinning`` is not installed.
+    TypeError
+        If ``dict_bin`` is not a ``dict``.
+    ValueError
+        If ``cols_feat`` is empty, ``col_target`` is empty, ``df`` lacks
+        ``col_target``, or the target column has fewer than two non-null rows.
+    """
+    try:
+        from optbinning import BinningProcess
+    except ImportError as exc:  # pragma: no cover - optional dependency
+        raise ImportError(
+            "modify_optimal_bin requires the 'optbinning' package. "
+            "Install with: pip install optbinning"
+        ) from exc
+
+    if not isinstance(dict_bin, dict):
+        raise TypeError("dict_bin must be a dict.")
+
+    if not cols_feat:
+        raise ValueError("cols_feat must be a non-empty list of column names.")
+
+    if not str(col_target).strip():
+        raise ValueError("col_target must be a non-empty column name.")
+
+    _validate_columns(df, "modify_optimal_bin", [col_target])
+
+    feat_order = list(dict.fromkeys(cols_feat))
+    cat_order = list(dict.fromkeys(cols_feat_cat)) if cols_feat_cat else []
+    feat_set = set(feat_order)
+    db = {str(k): v for k, v in dict_bin.items()}
+
+    feature_issues: list[str] = []
+    _issue_seen: set[str] = set()
+
+    def _push_issue(n: str) -> None:
+        if n not in _issue_seen:
+            _issue_seen.add(n)
+            feature_issues.append(n)
+
+    for c in feat_order:
+        if c not in df.columns:
+            _push_issue(c)
+    for c in cat_order:
+        if c not in feat_set:
+            _push_issue(c)
+        elif c not in df.columns:
+            _push_issue(c)
+
+    cat_names = {c for c in cat_order if c in feat_set and c in df.columns}
+
+    for name in feat_order:
+        if name not in df.columns:
+            continue
+        if name not in db:
+            _push_issue(name)
+            continue
+        is_cat = name in cat_names
+        if not _dict_bin_splits_well_formed(db[name], is_cat):
+            _push_issue(name)
+
+    mask = df[col_target].notna()
+    if int(mask.sum()) < 2:
+        raise ValueError(
+            "Need at least two rows with non-null col_target to refit binning."
+        )
+
+    y_valid = df.loc[mask, col_target]
+    from sklearn.utils.multiclass import type_of_target
+
+    target_kind = type_of_target(y_valid)
+    if target_kind not in ("binary", "continuous", "multiclass"):
+        raise ValueError(
+            f"col_target dtype is not supported for binning: {target_kind!r}."
+        )
+
+    OptB = _optimal_binning_class_for_target_type(target_kind)
+
+    fit_names: list[str] = []
+    for name in feat_order:
+        if name not in df.columns or name not in db:
+            continue
+        is_cat = name in cat_names
+        if not _dict_bin_splits_well_formed(db[name], is_cat):
+            continue
+        if target_kind == "multiclass" and is_cat:
+            _push_issue(name)
+            continue
+        fit_names.append(name)
+
+    if not fit_names:
+        return None, pd.DataFrame(), feature_issues
+
+    dict_optb: dict[str, Any] = {}
+    for name in fit_names:
+        is_cat = name in cat_names
+        dtype = "categorical" if is_cat else "numerical"
+        try:
+            optb = _optb_from_dict_bin_splits(name, dtype, db[name], OptB)
+            optb.fit(
+                df.loc[mask, name].values,
+                y_valid.values,
+                check_input=False,
+            )
+            dict_optb[name] = optb
+        except Exception:
+            _push_issue(name)
+
+    if not dict_optb:
+        return None, pd.DataFrame(), feature_issues
+
+    cat_for_bp = [c for c in cat_order if c in dict_optb]
+    bp = BinningProcess(
+        variable_names=list(dict_optb.keys()),
+        categorical_variables=cat_for_bp if cat_for_bp else None,
+    )
+    bp.fit_from_dict(dict_optb)
+
+    binning_stats = bp.summary().copy()
+    binning_stats["gini_power"] = binning_stats["gini"]
+    binning_stats.loc[binning_stats["gini"] < 0.5, "gini_power"] = (
+        1 - binning_stats["gini"]
+    )
+
+    return bp, binning_stats, feature_issues
+
+
+def get_binning_tables_from_bp(
+    optb: Any, cols_feat: list[str]
+) -> tuple[pd.DataFrame, list[str]]:
+    """
+    Concatenate optbinning binning tables for selected features from a process.
+
+    For each name in ``cols_feat`` (deduplicated, order preserved), loads
+    ``optb.get_binned_variable(name).binning_table.build()`` and row-binds the
+    tables after inserting a ``Feature Name`` column as the first column.
+
+    Parameters
+    ----------
+    optb : BinningProcess
+        Fitted ``optbinning.BinningProcess`` (e.g. from :func:`get_optimal_bin`).
+    cols_feat : list of str
+        Feature names to include (deduplicated, first occurrence wins). Names
+        not in ``optb.variable_names`` are skipped; those names appear in the
+        second return value.
+
+    Returns
+    -------
+    binning_tables : pandas.DataFrame
+        Columns are ``Feature Name`` followed by the union of all binning table
+        columns (e.g. ``Bin``, ``Count``, ``WoE`` for binary targets; schemas can
+        differ for multiclass, in which case :func:`pandas.concat` aligns with
+        missing values where a column does not apply). Empty when ``cols_feat``
+        is empty or when no requested name is recognized.
+    unrecognized : list of str
+        Names from ``cols_feat`` (after deduplication) that are not in
+        ``optb.variable_names``. Empty when ``cols_feat`` is ``[]``.
+
+    Raises
+    ------
+    TypeError
+        If ``optb`` lacks ``get_binned_variable`` or a variable has no
+        ``binning_table``.
+    """
+    if not hasattr(optb, "get_binned_variable"):
+        raise TypeError(
+            "optb must expose 'get_binned_variable' (e.g. a fitted "
+            "optbinning.BinningProcess)."
+        )
+
+    if not cols_feat:
+        return pd.DataFrame(), []
+
+    order = list(dict.fromkeys(cols_feat))
+    bp_names = {str(v) for v in getattr(optb, "variable_names", ())}
+    unrecognized = [c for c in order if c not in bp_names]
+    recognized = [c for c in order if c in bp_names]
+    if not recognized:
+        return pd.DataFrame(), unrecognized
+
+    parts: list[pd.DataFrame] = []
+    for name in recognized:
+        binned = optb.get_binned_variable(name)
+        bt = getattr(binned, "binning_table", None)
+        if bt is None:
+            raise TypeError(
+                f"get_binned_variable({name!r}) returned an object without "
+                "'binning_table'."
+            )
+        raw = bt.build()
+        if not isinstance(raw, pd.DataFrame):
+            raw = pd.DataFrame(raw)
+        df_part = raw.copy()
+        df_part.insert(0, "Feature Name", str(name))
+        parts.append(df_part)
+
+    out = pd.concat(parts, axis=0, ignore_index=True, sort=False)
+    col_order = ["Feature Name"] + [c for c in out.columns if c != "Feature Name"]
+    return out.loc[:, col_order], unrecognized
+
+
+def get_woe_from_bp(
+    df: pd.DataFrame,
+    cols_feat: list[str],
+    bp: Any,
+) -> tuple[pd.DataFrame, list[str], list[str]]:
+    """
+    Apply WoE encoding from a fitted ``optbinning.BinningProcess`` to a frame.
+
+    Transforms only names that appear in ``cols_feat`` (deduplicated, order
+    preserved), are listed in ``bp.variable_names``, **and** are columns of
+    ``df``. Any other ``cols_feat`` entry is skipped and listed in the third
+    return value (not recognized by ``bp``, or recognized but absent from
+    ``df``).
+
+    Parameters
+    ----------
+    df : pd.DataFrame
+        Rows to transform.
+    cols_feat : list of str
+        Candidate feature names to try in order.
+    bp : BinningProcess
+        Fitted ``optbinning.BinningProcess`` (e.g. from :func:`get_optimal_bin`).
+
+    Returns
+    -------
+    df_woe : pandas.DataFrame
+        WoE values from ``bp.transform(..., metric="woe")`` on the usable
+        columns only, renamed to ``<name>_woe``. Index matches ``df``. Empty
+        columns when nothing is both recognized and present in ``df``.
+    col_names : list of str
+        Column names of ``df_woe`` (same as ``list(df_woe.columns)``).
+    skipped : list of str
+        Names from ``cols_feat`` (after deduplication) that were not transformed
+        because they are not in ``bp.variable_names`` or not in ``df.columns``.
+
+    Raises
+    ------
+    TypeError
+        If ``bp`` lacks ``variable_names`` or ``get_binned_variable``.
+
+    Notes
+    -----
+    Requires ``optbinning`` to be installed. WoE is computed with
+    ``bp.get_binned_variable(name).transform(...)`` for each usable column so the
+    frame need not include every variable that was fit in the process (unlike
+    ``BinningProcess.transform``, which requires all selected variables to be
+    present). ``metric_special`` and ``metric_missing`` use optbinning defaults
+    (numeric ``0``).
+    """
+    if not hasattr(bp, "variable_names") or not hasattr(bp, "get_binned_variable"):
+        raise TypeError(
+            "bp must expose 'variable_names' and 'get_binned_variable' (e.g. a "
+            "fitted optbinning.BinningProcess)."
+        )
+
+    bp_names = {str(v) for v in getattr(bp, "variable_names", ())}
+    order = list(dict.fromkeys(cols_feat))
+    df_cols = set(df.columns)
+    to_transform = [c for c in order if c in bp_names and c in df_cols]
+    skipped = [c for c in order if c not in to_transform]
+
+    if not to_transform:
+        df_woe = pd.DataFrame(index=df.index)
+        return df_woe, [], skipped
+
+    woe_data: dict[str, np.ndarray] = {}
+    for name in to_transform:
+        binned = bp.get_binned_variable(name)
+        w = binned.transform(df[name], metric="woe", check_input=False)
+        woe_data[f"{name}_woe"] = np.asarray(w, dtype=float).reshape(-1)
+
+    df_woe = pd.DataFrame(woe_data, index=df.index)
+    col_names = list(df_woe.columns)
+    return df_woe, col_names, skipped
 
 
 def _stratify_labels(y: pd.Series) -> pd.Series | None:
@@ -1507,11 +2283,16 @@ __all__ = [
     "get_nan_rate_timely",
     "get_target_rate_sample",
     "get_feature_predictive_power",
+    "select_features_auc_max_corr",
+    "select_features_iv_max_corr",
     "get_feature_predictive_power_timely",
     "get_score_predictive_power_timely",
     "get_score_predictive_power_data_type",
     "get_feature_dtype",
     "get_optimal_bin",
+    "modify_optimal_bin",
+    "get_binning_tables_from_bp",
+    "get_woe_from_bp",
     "split_data",
     "get_virtual_date",
     "get_day_from_date",

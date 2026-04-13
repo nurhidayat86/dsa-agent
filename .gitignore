@@ -82,3 +82,4 @@ Thumbs.db
 .vscode/
 *.code-workspace
 .cursor/
+predictive-model-agent/data/
