@@ -19,8 +19,8 @@ Tabular **modeling and monitoring** helpers for AI agents or MCP tools. The main
 ### Population stability (PSI)
 
 - **`compute_psi`** — PSI for one numeric feature using reference quantile bins.
-- **`get_timely_feature_psi`** — PSI per feature and per production time (`col_time`); quantile bins; optional `prod_time_values`.
-- **`get_timely_feature_psi_woe`** — PSI per WoE feature and period (`col_period`); **each distinct WoE value is its own bin** (no new bins). Output columns: `time`, `feature_name`, `psi`, **`count data`** (non-null WoE count in that slice).
+- **`get_timely_vars_psi`** — PSI for each variable in `col_vars` vs. reference `df_ref`, by production period `col_time` (quantile bins via `compute_psi`); optional `prod_time_values`. **Return shape:** index = `time`, columns = variable names, values = PSI.
+- **`get_timely_feature_psi_woe`** — Unlike **`get_timely_vars_psi`** (wide table, quantile bins on raw variables), WoE PSI is **long** by period: **each distinct WoE value is its own bin** (no new bins). Output columns: `time`, `feature_name`, `psi`, **`count data`** (non-null WoE count in that slice).
 - **`get_timely_psi`** — PSI for a **single** variable across `col_period`: **numeric** columns use quantile bins (`n_bin`); **categorical / string / bool** use native categories as bins. Columns: `time_period`, `psi`, **`count data`**.
 
 ### Target rates over time or segments

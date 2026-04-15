@@ -69,6 +69,11 @@ def _stabilize_distribution(probs: np.ndarray, epsilon: float) -> np.ndarray:
     return p / total
 
 
+def set_value_list(input_list):
+    """Return ``input_list`` unchanged."""
+    return input_list
+
+
 def compute_psi(
     ref: pd.Series,
     prod: pd.Series,
@@ -230,10 +235,10 @@ def _col_var_use_category_bins(series: pd.Series) -> bool:
     return False
 
 
-def get_timely_feature_psi(
+def get_timely_vars_psi(
     df_ref: pd.DataFrame,
     df_prod: pd.DataFrame,
-    col_feats: list[str],
+    col_vars: list[str],
     col_time: str,
     *,
     n_bins: int = 10,
@@ -241,11 +246,11 @@ def get_timely_feature_psi(
     prod_time_values: Optional[Iterable] = None,
 ) -> pd.DataFrame:
     """
-    PSI per feature and per time period in production data.
+    PSI per variable and per time period in production data.
 
     For each distinct value of ``col_time`` in production (or a subset you
-    pass via ``prod_time_values``), and for each feature in ``col_feats``,
-    this compares the distribution of that feature in
+    pass via ``prod_time_values``), and for each variable in ``col_vars``,
+    this compares the distribution of that variable in
     ``df_prod[df_prod[col_time] == t]`` to the reference distribution in
     ``df_ref`` using :func:`compute_psi`.
 
@@ -259,8 +264,8 @@ def get_timely_feature_psi(
         Reference / baseline sample (e.g. model development window).
     df_prod : pd.DataFrame
         Production sample; compared to ``df_ref`` by time slice.
-    col_feats : list of str
-        Numeric feature column names present in both dataframes.
+    col_vars : list of str
+        Numeric variable column names present in both dataframes.
     col_time : str
         Name of the time period column in ``df_prod`` (integer or sortable).
     n_bins : int, default 10
@@ -275,14 +280,15 @@ def get_timely_feature_psi(
     Returns
     -------
     pd.DataFrame
-        Columns: ``time``, ``feature_name``, ``psi``. One row per
-        (time period, feature). ``psi`` may be ``NaN`` where PSI cannot be
-        computed for that slice.
+        Index: ``time`` (period labels, same order as evaluated ``col_time``
+        values). Columns: one per variable in ``col_vars`` (same order as
+        input). Cell values are PSI; ``NaN`` where PSI cannot be computed for
+        that slice.
 
     Raises
     ------
     ValueError
-        If required columns are missing or ``col_feats`` is empty.
+        If required columns are missing or ``col_vars`` is empty.
 
     Examples
     --------
@@ -292,14 +298,14 @@ def get_timely_feature_psi(
     ...     "score": np.random.randn(2000),
     ...     "period": [202501] * 1000 + [202502] * 1000,
     ... })
-    >>> out = get_timely_feature_psi(ref, prod, ["score"], "period")
-    >>> set(out.columns) == {"time", "feature_name", "psi"}
+    >>> out = get_timely_vars_psi(ref, prod, ["score"], "period")
+    >>> out.index.name == "time" and list(out.columns) == ["score"]
     True
     """
-    if not col_feats:
-        raise ValueError("col_feats must be a non-empty list of column names.")
+    if not col_vars:
+        raise ValueError("col_vars must be a non-empty list of column names.")
 
-    feat_cols = list(col_feats)
+    feat_cols = list(col_vars)
     _validate_columns(df_ref, "df_ref", feat_cols)
     _validate_columns(df_prod, "df_prod", feat_cols + [col_time])
 
@@ -327,8 +333,18 @@ def get_timely_feature_psi(
                 }
             )
 
-    out = pd.DataFrame(rows, columns=["time", "feature_name", "psi"])
-    return out
+    long = pd.DataFrame(rows, columns=["time", "feature_name", "psi"])
+    if len(long) == 0:
+        return pd.DataFrame(
+            index=pd.Index(times, name="time"),
+            columns=feat_cols,
+            dtype=float,
+        )
+    wide = long.pivot(index="time", columns="feature_name", values="psi")
+    wide = wide.reindex(index=times, columns=feat_cols)
+    wide.index.name = "time"
+    wide.columns.name = None
+    return wide
 
 
 def get_timely_feature_psi_woe(
@@ -341,7 +357,7 @@ def get_timely_feature_psi_woe(
     """
     PSI per WoE feature and per production period, using distinct WoE values as bins.
 
-    Unlike :func:`get_timely_feature_psi` (quantile bins on a continuous score),
+    Unlike :func:`get_timely_vars_psi` (quantile bins on a continuous score),
     each unique numeric WoE level in the union of reference and production
     counts as its own category; expected proportions follow ``df_ref`` and
     actual proportions follow ``df_prod`` restricted to
@@ -510,13 +526,12 @@ def get_timely_binary_target_rate(
     col_target: str,
 ) -> pd.DataFrame:
     """
-    Positive rate (mean label) and count of ``col_target`` by time period.
+    Positive rate (mean label), row count, and positive-label count by time period.
 
     For each distinct value of ``col_period``, computes the sample mean of
     ``col_target`` (for a 0/1 binary label this is the event rate in that
-    period) and the number of rows in that slice. Equivalent to:
-
-    ``df[[col_period, col_target]].groupby(col_period).agg(['mean', 'count'])[col_target]``
+    period), the number of non-null rows in that slice, and the sum of
+    ``col_target`` (for 0/1 labels this is the count of the positive class).
 
     Parameters
     ----------
@@ -533,7 +548,9 @@ def get_timely_binary_target_rate(
     pd.DataFrame
         Index: unique values of ``col_period`` (pandas groupby index; sorted
         by default when ``sort=True``). Columns: ``mean`` (label mean in the
-        period) and ``count`` (row count in the period).
+        period), ``count`` (non-null row count in the period), and
+        ``count_positive`` (sum of ``col_target`` in the period; for 0/1
+        encoding this is the number of positive labels).
 
     Raises
     ------
@@ -542,14 +559,18 @@ def get_timely_binary_target_rate(
 
     Notes
     -----
-    **Agent / MCP:** stable two-column result plus period index; suitable for
-    charts (rate over time) and volume checks (count per period).
+    **Agent / MCP:** stable columns plus period index; suitable for charts
+    (rate over time) and volume checks (counts per period).
     """
     _validate_columns(df, "get_timely_binary_target_rate", [col_period, col_target])
     return (
         df[[col_period, col_target]]
         .groupby(col_period)
-        .agg(["mean", "count"])[col_target]
+        .agg(
+            mean=(col_target, "mean"),
+            count=(col_target, "count"),
+            count_positive=(col_target, "sum"),
+        )
     )
 
 
@@ -2675,6 +2696,78 @@ def get_score_predictive_power_data_type(
     return out
 
 
+def compare_scores_gini_auc(
+    df: pd.DataFrame,
+    col_type: str,
+    cols_score: list[str],
+    col_target: str,
+) -> pd.DataFrame:
+    """
+    Gini and ROC AUC for several score columns, wide by data split / cohort.
+
+    For each score in ``cols_score``, calls
+    :func:`get_score_predictive_power_data_type` (same AUC / Gini semantics).
+    Non-null distinct values of ``col_type`` define the splits; split labels
+    are sorted ascending as strings for deterministic column order.
+
+    Parameters
+    ----------
+    df : pd.DataFrame
+        Rows containing score columns, split label ``col_type``, and binary
+        ``col_target``.
+    col_type : str
+        Column naming the subset (e.g. ``train``, ``valid``, ``test``, ``oot``).
+    cols_score : list of str
+        Score column names (deduplicated, first occurrence wins).
+    col_target : str
+        Binary label column.
+
+    Returns
+    -------
+    pd.DataFrame
+        Index: score column names (same order as deduplicated ``cols_score``).
+        Columns: ``gini_<split>`` for each split, then ``auc_<split>`` for each
+        split, where ``<split>`` is the string cohort label. Values are Gini
+        (``2 * AUC - 1`` clipped) and ROC AUC from that helper.
+
+    Raises
+    ------
+    ValueError
+        If ``cols_score`` is empty or a required column is missing.
+
+    Notes
+    -----
+    **Agent / MCP:** one row per score; wide layout for comparing models on the
+    same splits.
+    """
+    if not cols_score:
+        raise ValueError("cols_score must be a non-empty list of column names.")
+    score_cols = list(dict.fromkeys(cols_score))
+    _validate_columns(df, "df", score_cols + [col_type, col_target])
+
+    splits = sorted(df[col_type].dropna().astype(str).unique().tolist())
+    col_order = [f"gini_{s}" for s in splits] + [f"auc_{s}" for s in splits]
+
+    rows: list[dict[str, Any]] = []
+    for score in score_cols:
+        perf = get_score_predictive_power_data_type(df, score, col_type, col_target)
+        by_split = (
+            perf.set_index("time_period") if len(perf) else pd.DataFrame()
+        )
+        row: dict[str, Any] = {}
+        for s in splits:
+            if len(by_split) and s in by_split.index:
+                row[f"gini_{s}"] = by_split.loc[s, "gini"]
+                row[f"auc_{s}"] = by_split.loc[s, "aucroc"]
+            else:
+                row[f"gini_{s}"] = float(np.nan)
+                row[f"auc_{s}"] = float(np.nan)
+        rows.append(row)
+
+    out = pd.DataFrame(rows, index=pd.Index(score_cols, name=None))
+    return out.reindex(columns=col_order)
+
+
 def get_score_predictive_power_data_type_bootstrap(
     df: pd.DataFrame,
     col_score: str,
@@ -4674,7 +4767,7 @@ def logreg_predict(
 
 __all__ = [
     "compute_psi",
-    "get_timely_feature_psi",
+    "get_timely_vars_psi",
     "get_timely_feature_psi_woe",
     "get_timely_psi",
     "get_timely_binary_target_rate",
@@ -4691,11 +4784,13 @@ __all__ = [
     "select_features_bic_backward",
     "select_features_auc_backward",
     "select_features_auc_forward",
+    "set_value_list",
     "get_feature_predictive_power_timely",
     "get_score_predictive_power_timely",
     "get_score_predictive_power_data_type",
     "get_score_predictive_power_data_type_bootstrap",
     "compare_score_predictive_power_data_type_bootstrap",
+    "compare_scores_gini_auc",
     "get_feature_dtype",
     "get_optimal_bin",
     "modify_optimal_bin",
