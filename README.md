@@ -9,7 +9,7 @@ This repository hosts tools and agents for data-science and analytics workflows.
 | Folder | Purpose |
 |--------|---------|
 | [`ai-data-generator/`](ai-data-generator/) | Synthetic **customer voice** for banks via Google **Gemini**: branch **feedback / complaints** and **telesales call-center** dialogues (VibeVoice-oriented transcripts) |
-| [`predictive-model-agent/`](predictive-model-agent/) | **Agent / MCP-style** Python tools for **tabular predictive modeling**: splits, drift-style metrics (PSI, rates over time), binning helpers, and a sample **HELOC** dataset for notebooks |
+| [`predictive-model-agent/`](predictive-model-agent/) | **Agent / MCP-style** Python tools for **tabular predictive modeling**: cohort splits, PSI (including WoE-level and single-variable timely variants), target rates by segment, score AUC/Gini by period or split (with bootstrap comparisons), **L1/L2** logistic tuning with CV, prediction helpers, stepwise feature selection, **optbinning** / WoE helpers, and a sample **HELOC** dataset for notebooks ([details](predictive-model-agent/README.md)) |
 | [`vector-db-writer/`](vector-db-writer/) | **Ingest** synthetic (or real) bank-feedback **JSONL** into a **persistent ChromaDB** collection with **Qwen3-Embedding-8B** or **Gemini** embeddings |
 | [`topic-modelling/`](topic-modelling/) | **Cluster and summarize** Chroma-loaded documents: **UMAP** + **HDBSCAN**, **KeyBERT** (local Qwen), **Gemini** per-cluster summaries and a **Markdown** helicopter-view report |
 
@@ -76,11 +76,11 @@ Normative ingestion mapping: **[`vector-db-writer/docs/chroma_bank_feedback_inge
 
 ## `predictive-model-agent/`
 
-Python module **[`agent_tools.py`](predictive-model-agent/agent_tools.py)** (import as `agent_tools` after adding the folder to `PYTHONPATH` or running from that directory) exposes functions intended for **AI agents** or **MCP** servers: validation, explicit return shapes, and docstrings for tool schemas. Topics include **train / valid / test / OOT** style splits, **PSI**, missingness over time, feature and score diagnostics, and optional **optbinning** integration.
+Python module **[`agent_tools.py`](predictive-model-agent/agent_tools.py)** (import as `agent_tools` after adding the folder to `PYTHONPATH` or running from that directory) exposes functions intended for **AI agents** or **MCP** servers: validation, explicit return shapes, and docstrings for tool schemas. Topics include **train / valid / test / hoot / oot** splits, **PSI** (quantile, WoE-discrete, and single-variable timely), **target rates by binned feature and period**, **score** ROC-AUC/Gini by period or split (including **bootstrap** summaries and **champion vs challenger** comparison), **logistic regression** tuning (`train_logreg_l1_tune_cv` / `train_logreg_l2_tune_cv`) and **`logreg_predict`**, stepwise **feature selection** (AIC/BIC/AUC with optional `min_delta`), and optional **optbinning** integration.
 
 | Piece | Role |
 |-------|------|
-| [`agent_tools.py`](predictive-model-agent/agent_tools.py) | Main library: `split_data`, `compute_psi`, timely metrics, `get_optimal_bin`, etc. |
+| [`agent_tools.py`](predictive-model-agent/agent_tools.py) | Main library (see [`predictive-model-agent/README.md`](predictive-model-agent/README.md) for a grouped overview) |
 | [`notebook/testing_tools.ipynb`](predictive-model-agent/notebook/testing_tools.ipynb) | Example usage against [`data/heloc_dataset_v1.parquet`](predictive-model-agent/data/heloc_dataset_v1.parquet) (and CSV) |
 
 **Note:** If you still see an old `credit-risk-data-scientist/` directory after a rename, close anything locking it (e.g. Jupyter) and remove the leftover folder so only `predictive-model-agent/` remains.

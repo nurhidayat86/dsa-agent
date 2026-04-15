@@ -7,60 +7,13 @@ for tool schema generation.
 """
 
 from __future__ import annotations
-from pydantic import BaseModel, ConfigDict, ValidationError
 from typing import Any, Iterable, Optional
 
 import numpy as np
 import pandas as pd
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import roc_auc_score
-from sklearn.model_selection import train_test_split
-
-class AgentMemory(BaseModel):
-    """
-    Memory for the agent to store information.
-    """
-    metadata: dict = {}
-    dict_bin: dict = {}
-
-    model_config = ConfigDict(
-        validate_assignment=True,
-        extra='allow',
-        arbitrary_types_allowed=True
-        )
-    cols_feat: list[str] = []
-    cols_feat_cat: list[str] = []
-    cols_feat_time: list[str] = []
-    cols_feat_num: list[str] = []
-    cols_feat_woe: list[str] = []
-    features_issue_woe: list[str] = []
-    features_issue_binning_tables: list[str] = []
-    binning_feature_issues: list[str] = []
-    binning_feature_issues: list[str] = []
-
-    hoot_th: int = 0
-    oot_th: int = 0
-    col_target: str = ""
-    col_time: str = ""
-    col_score: str = ""
-    col_type: str = ""
-    col_day: str = ""
-    col_month: str = ""
-
-    # Dataframe to store the results
-    df_target_rate_timely: pd.DataFrame = pd.DataFrame()
-    df_nan_rate_timely: pd.DataFrame = pd.DataFrame()
-    df_nan_rate: pd.DataFrame = pd.DataFrame()
-    df_target_rate_per_sample: pd.DataFrame = pd.DataFrame()
-    df_binning_stats: pd.DataFrame = pd.DataFrame()
-    df_binning_tables: pd.DataFrame = pd.DataFrame()
-    df_woe: pd.DataFrame = pd.DataFrame()
-
-    # Object of any class
-    bp: Any = None
-
-
-
+from sklearn.model_selection import StratifiedKFold, train_test_split
 
 def _serialize_optbinning_splits(optb: Any) -> Any:
     """
@@ -204,7 +157,80 @@ def compute_psi(
     return psi
 
 
-def get_timely_psi(
+def _psi_discrete_unique_levels(
+    ref: pd.Series,
+    prod: pd.Series,
+    *,
+    epsilon: float,
+) -> float:
+    """
+    PSI when each distinct numeric value is its own category (e.g. WoE levels).
+
+    Expected proportions come from ``ref``; actual from ``prod``. Categories
+    are the union of distinct values appearing in either sample.
+    """
+    ref_clean = pd.to_numeric(ref, errors="coerce").dropna()
+    prod_clean = pd.to_numeric(prod, errors="coerce").dropna()
+    if len(ref_clean) < 1 or len(prod_clean) < 1:
+        return float(np.nan)
+    ref_vc = ref_clean.value_counts()
+    prod_vc = prod_clean.value_counts()
+    n_ref = float(ref_vc.sum())
+    n_prod = float(prod_vc.sum())
+    if n_ref <= 0 or n_prod <= 0:
+        return float(np.nan)
+    idx = ref_vc.index.union(prod_vc.index, sort=False)
+    expected = (ref_vc.reindex(idx, fill_value=0) / n_ref).to_numpy(dtype=float)
+    actual = (prod_vc.reindex(idx, fill_value=0) / n_prod).to_numpy(dtype=float)
+    expected = _stabilize_distribution(expected, epsilon)
+    actual = _stabilize_distribution(actual, epsilon)
+    ratio = np.divide(actual, expected, out=np.full_like(actual, np.nan), where=expected > 0)
+    if not np.all(np.isfinite(ratio)) or np.any(ratio <= 0):
+        return float(np.nan)
+    return float(np.sum((actual - expected) * np.log(ratio)))
+
+
+def _psi_discrete_category_union(
+    ref: pd.Series,
+    prod: pd.Series,
+    *,
+    epsilon: float,
+) -> float:
+    """
+    PSI for categorical (or string/bool) labels: each observed category is a bin.
+    """
+    ref_clean = ref.dropna()
+    prod_clean = prod.dropna()
+    if len(ref_clean) < 1 or len(prod_clean) < 1:
+        return float(np.nan)
+    ref_vc = ref_clean.value_counts()
+    prod_vc = prod_clean.value_counts()
+    n_ref = float(ref_vc.sum())
+    n_prod = float(prod_vc.sum())
+    if n_ref <= 0 or n_prod <= 0:
+        return float(np.nan)
+    idx = ref_vc.index.union(prod_vc.index, sort=False)
+    expected = (ref_vc.reindex(idx, fill_value=0) / n_ref).to_numpy(dtype=float)
+    actual = (prod_vc.reindex(idx, fill_value=0) / n_prod).to_numpy(dtype=float)
+    expected = _stabilize_distribution(expected, epsilon)
+    actual = _stabilize_distribution(actual, epsilon)
+    ratio = np.divide(actual, expected, out=np.full_like(actual, np.nan), where=expected > 0)
+    if not np.all(np.isfinite(ratio)) or np.any(ratio <= 0):
+        return float(np.nan)
+    return float(np.sum((actual - expected) * np.log(ratio)))
+
+
+def _col_var_use_category_bins(series: pd.Series) -> bool:
+    """True if ``col_var`` should use native categories as PSI bins (no quantiles)."""
+    dt = series.dtype
+    if isinstance(dt, pd.CategoricalDtype):
+        return True
+    if dt == object or pd.api.types.is_string_dtype(series) or pd.api.types.is_bool_dtype(series):
+        return True
+    return False
+
+
+def get_timely_feature_psi(
     df_ref: pd.DataFrame,
     df_prod: pd.DataFrame,
     col_feats: list[str],
@@ -266,7 +292,7 @@ def get_timely_psi(
     ...     "score": np.random.randn(2000),
     ...     "period": [202501] * 1000 + [202502] * 1000,
     ... })
-    >>> out = get_timely_psi(ref, prod, ["score"], "period")
+    >>> out = get_timely_feature_psi(ref, prod, ["score"], "period")
     >>> set(out.columns) == {"time", "feature_name", "psi"}
     True
     """
@@ -303,6 +329,179 @@ def get_timely_psi(
 
     out = pd.DataFrame(rows, columns=["time", "feature_name", "psi"])
     return out
+
+
+def get_timely_feature_psi_woe(
+    df_ref: pd.DataFrame,
+    df_prod: pd.DataFrame,
+    cols_feats: list[str],
+    col_period: str,
+    epsilon: float = 1e-6,
+) -> pd.DataFrame:
+    """
+    PSI per WoE feature and per production period, using distinct WoE values as bins.
+
+    Unlike :func:`get_timely_feature_psi` (quantile bins on a continuous score),
+    each unique numeric WoE level in the union of reference and production
+    counts as its own category; expected proportions follow ``df_ref`` and
+    actual proportions follow ``df_prod`` restricted to
+    ``df_prod[col_period] == t``.
+
+    Parameters
+    ----------
+    df_ref : pd.DataFrame
+        Reference sample (e.g. training); must contain ``cols_feats``.
+    df_prod : pd.DataFrame
+        Production sample; must contain ``cols_feats`` and ``col_period``.
+    cols_feats : list of str
+        WoE feature columns (numeric coercion applied).
+    col_period : str
+        Period column in ``df_prod``; all distinct non-null values are used,
+        sorted.
+    epsilon : float, default 1e-6
+        Floor for category probabilities before the PSI log ratio (same role
+        as in :func:`compute_psi`).
+
+    Returns
+    -------
+    pd.DataFrame
+        Columns ``time``, ``feature_name``, ``psi``, and ``count data`` (number
+        of non-null numeric values of the feature in that production slice).
+        ``time`` holds ``col_period`` values.
+
+    Raises
+    ------
+    ValueError
+        If ``cols_feats`` is empty or required columns are missing.
+    """
+    if not cols_feats:
+        raise ValueError("cols_feats must be a non-empty list of column names.")
+
+    feat_cols = list(cols_feats)
+    _validate_columns(df_ref, "df_ref", feat_cols)
+    _validate_columns(df_prod, "df_prod", feat_cols + [col_period])
+
+    times = sorted(df_prod[col_period].dropna().unique().tolist())
+    rows: list[dict[str, Any]] = []
+    for t in times:
+        mask = df_prod[col_period] == t
+        df_slice = df_prod.loc[mask]
+        for feat in feat_cols:
+            psi_val = _psi_discrete_unique_levels(
+                df_ref[feat],
+                df_slice[feat],
+                epsilon=epsilon,
+            )
+            n_data = int(
+                pd.to_numeric(df_slice[feat], errors="coerce").notna().sum()
+            )
+            rows.append(
+                {
+                    "time": t,
+                    "feature_name": feat,
+                    "psi": psi_val,
+                    "count data": n_data,
+                }
+            )
+
+    return pd.DataFrame(rows, columns=["time", "feature_name", "psi", "count data"])
+
+
+def get_timely_psi(
+    df_ref: pd.DataFrame,
+    df_prod: pd.DataFrame,
+    col_var: str,
+    col_period: str,
+    n_bin: int = 10,
+    *,
+    epsilon: float = 1e-6,
+) -> pd.DataFrame:
+    """
+    PSI for one variable across production periods (or segment labels).
+
+    For each distinct ``col_period`` value in ``df_prod`` (calendar periods,
+    cohort segments such as ``train`` / ``valid``, etc.), compares the
+    distribution of ``col_var`` in ``df_prod`` at that slice to the reference
+    distribution in ``df_ref[col_var]``.
+
+    - **Numeric** (integer/float): uses quantile bins on the reference sample
+      (same as :func:`compute_psi`) with ``n_bin`` bins.
+    - **Categorical** (``category``, ``object``, string, or boolean dtypes):
+      each observed category is its own bin; no new bins are created.
+
+    Parameters
+    ----------
+    df_ref : pd.DataFrame
+        Reference sample; must contain ``col_var``.
+    df_prod : pd.DataFrame
+        Production sample; must contain ``col_var`` and ``col_period``.
+    col_var : str
+        Variable whose stability is measured.
+    col_period : str
+        Period or segment column in ``df_prod``; unique non-null values are
+        used, sorted for deterministic row order.
+    n_bin : int, default 10
+        Number of quantile bins when ``col_var`` is numeric (ignored for
+        categorical columns).
+    epsilon : float, default 1e-6
+        Probability floor for PSI stabilization (see :func:`compute_psi`).
+
+    Returns
+    -------
+    pd.DataFrame
+        Columns ``time_period``, ``psi``, and ``count data`` (number of
+        non-missing ``col_var`` values in that production slice used for the
+        actual distribution), one row per distinct ``col_period`` value in
+        ``df_prod``.
+
+    Raises
+    ------
+    ValueError
+        If required columns are missing or ``n_bin`` is invalid for numeric PSI.
+    """
+    _validate_columns(df_ref, "df_ref", [col_var])
+    _validate_columns(df_prod, "df_prod", [col_var, col_period])
+
+    s_decide = df_ref[col_var]
+    if s_decide.notna().any():
+        use_categories = _col_var_use_category_bins(s_decide)
+    else:
+        use_categories = _col_var_use_category_bins(df_prod[col_var])
+
+    if not use_categories and int(n_bin) < 2:
+        raise ValueError("n_bin must be at least 2 for numeric PSI.")
+
+    times = sorted(df_prod[col_period].dropna().unique().tolist())
+    rows: list[dict[str, Any]] = []
+    for t in times:
+        mask = df_prod[col_period] == t
+        df_slice = df_prod.loc[mask]
+        if use_categories:
+            psi_val = _psi_discrete_category_union(
+                df_ref[col_var],
+                df_slice[col_var],
+                epsilon=epsilon,
+            )
+            n_data = int(df_slice[col_var].notna().sum())
+        else:
+            psi_val = compute_psi(
+                df_ref[col_var],
+                df_slice[col_var],
+                n_bins=int(n_bin),
+                epsilon=epsilon,
+            )
+            n_data = int(
+                pd.to_numeric(df_slice[col_var], errors="coerce").notna().sum()
+            )
+        rows.append(
+            {
+                "time_period": t,
+                "psi": float(psi_val),
+                "count data": n_data,
+            }
+        )
+
+    return pd.DataFrame(rows, columns=["time_period", "psi", "count data"])
 
 
 def get_timely_binary_target_rate(
@@ -351,6 +550,127 @@ def get_timely_binary_target_rate(
         df[[col_period, col_target]]
         .groupby(col_period)
         .agg(["mean", "count"])[col_target]
+    )
+
+
+def get_timely_target_rate_feature_segment(
+    df: pd.DataFrame,
+    cols_feat_bin: list[str],
+    col_target: str,
+    col_period: str,
+) -> pd.DataFrame:
+    """
+    Target rate by pre-binned feature segment within each period or cohort.
+
+    For each distinct ``col_period`` value (e.g. calendar month or a split label
+    like ``train`` / ``valid``), each feature in ``cols_feat_bin``, and each
+    **distinct non-null** value of that feature observed in that slice (the bin
+    / segment), this reports how many rows have a non-null target, how many are
+    the positive class, and the positive rate.
+
+    The positive class is the **numerically larger** of the two distinct
+    ``col_target`` values after coercion on rows where ``col_target`` is
+    non-null globally; if the global target is not binary, rates are ``NaN``.
+
+    Parameters
+    ----------
+    df : pd.DataFrame
+        Input data.
+    cols_feat_bin : list of str
+        Binned or categorical feature columns (deduplicated, first occurrence
+        wins). Bin identity is the raw value in the column for that slice.
+    col_target : str
+        Binary target (coerced with ``pd.to_numeric``; two distinct values
+        required globally among non-null targets).
+    col_period : str
+        Period or segment column; unique non-null values are processed, sorted
+        for deterministic row order.
+
+    Returns
+    -------
+    pd.DataFrame
+        Columns ``time period``, ``feature name``, ``segment`` (bin/category
+        value), ``count data`` (rows with non-null target in that bin and
+        period), ``count positive`` (rows in that set with target equal to the
+        positive class), ``positive rate`` (ratio, ``NaN`` when count data is
+        0 or target is not globally binary).
+
+    Raises
+    ------
+    ValueError
+        If ``cols_feat_bin`` is empty or required columns are missing from
+        ``df``.
+    """
+    if not cols_feat_bin:
+        raise ValueError(
+            "cols_feat_bin must be a non-empty list of column names."
+        )
+    feat_cols = list(dict.fromkeys(cols_feat_bin))
+    _validate_columns(df, "df", feat_cols + [col_target, col_period])
+
+    y_all = pd.to_numeric(df[col_target], errors="coerce").dropna()
+    hi: float | None
+    if len(y_all) < 2 or y_all.nunique() != 2:
+        hi = None
+    else:
+        hi = float(sorted(y_all.unique().tolist())[-1])
+
+    def _bin_sort_key(v: Any) -> tuple:
+        if v is None or (isinstance(v, float) and np.isnan(v)):
+            return (2, "")
+        if isinstance(v, (bool, np.bool_)):
+            return (0, int(bool(v)))
+        if isinstance(v, (int, np.integer)):
+            return (0, int(v))
+        if isinstance(v, (float, np.floating)):
+            return (0, float(v))
+        return (1, str(v))
+
+    periods = sorted(df[col_period].dropna().unique().tolist(), key=str)
+    rows: list[dict[str, Any]] = []
+    for t in periods:
+        df_t = df.loc[df[col_period] == t]
+        for feat in feat_cols:
+            bins = df_t[feat].dropna().unique().tolist()
+            bins_sorted = sorted(bins, key=_bin_sort_key)
+            for b in bins_sorted:
+                sub = df_t.loc[df_t[feat] == b]
+                y_sub = pd.to_numeric(sub[col_target], errors="coerce")
+                n_data = int(y_sub.notna().sum())
+                if hi is None or n_data == 0:
+                    rows.append(
+                        {
+                            "time period": t,
+                            "feature name": feat,
+                            "segment": b,
+                            "count data": n_data,
+                            "count positive": float(np.nan),
+                            "positive rate": float(np.nan),
+                        }
+                    )
+                else:
+                    c_pos = int((y_sub == hi).sum())
+                    rows.append(
+                        {
+                            "time period": t,
+                            "feature name": feat,
+                            "segment": b,
+                            "count data": n_data,
+                            "count positive": c_pos,
+                            "positive rate": float(c_pos / n_data),
+                        }
+                    )
+
+    return pd.DataFrame(
+        rows,
+        columns=[
+            "time period",
+            "feature name",
+            "segment",
+            "count data",
+            "count positive",
+            "positive rate",
+        ],
     )
 
 
@@ -1181,6 +1501,7 @@ def select_features_aic_backward(
     cols_feat: list[str],
     col_target: str,
     max_corr: float = 0.5,
+    min_delta: float = 1e-9,
 ) -> tuple[list[str], pd.DataFrame]:
     """
     Backward stepwise logistic regression minimizing AIC with a correlation cap.
@@ -1192,9 +1513,10 @@ def select_features_aic_backward(
     variance whose absolute correlation to every feature already kept is at
     most ``max_corr``. Starting from the logistic model on that set, each step
     removes the single feature whose removal yields the **lowest** AIC among
-    all removals (tie-break by name); the step is taken only if that AIC is
-    strictly lower than before. Stops when no removal improves AIC. The same
-    ``LogisticRegression`` settings as :func:`select_features_aic_forward` apply.
+    all removals (tie-break by name); the step is taken only if AIC decreases
+    by at least ``min_delta`` versus before. Stops when no removal meets that
+    threshold. The same ``LogisticRegression`` settings as
+    :func:`select_features_aic_forward` apply.
 
     Parameters
     ----------
@@ -1207,6 +1529,9 @@ def select_features_aic_backward(
     max_corr : float, default 0.5
         Used when building the initial set (pairwise absolute correlation bound
         for inclusion). Must lie in ``[0, 1]``.
+    min_delta : float, default 1e-9
+        Minimum AIC decrease for a backward step (``aic_before - aic_after``).
+        Must be finite and non-negative.
 
     Returns
     -------
@@ -1235,6 +1560,9 @@ def select_features_aic_backward(
 
     if max_corr < 0 or max_corr > 1:
         raise ValueError("max_corr must be between 0 and 1 inclusive.")
+
+    if not np.isfinite(min_delta) or min_delta < 0:
+        raise ValueError("min_delta must be a finite non-negative float.")
 
     order = list(dict.fromkeys(cols_feat))
     _validate_columns(df, "select_features_aic_backward", [col_target] + order)
@@ -1307,7 +1635,7 @@ def select_features_aic_backward(
                     continue
             if not np.isfinite(aic_new):
                 continue
-            if aic_new < aic_cur - 1e-9:
+            if (aic_cur - aic_new) >= min_delta:
                 trials.append((aic_new, v, nxt, prob))
 
         if not trials:
@@ -1357,6 +1685,7 @@ def select_features_aic_forward(
     cols_feat: list[str],
     col_target: str,
     max_corr: float = 0.5,
+    min_delta: float = 1e-9,
 ) -> tuple[list[str], pd.DataFrame]:
     """
     Forward stepwise logistic regression minimizing AIC with a correlation cap.
@@ -1366,10 +1695,11 @@ def select_features_aic_forward(
     distinct value is treated as class 1. At each step, among features not yet
     selected whose absolute Pearson correlation to every already-selected
     feature is at most ``max_corr`` (and with non-zero variance on the modeling
-    frame), the model that **strictly lowers** AIC when the feature is added is
-    chosen; ties break by feature name. Stops when no eligible feature improves
-    AIC. Fits ``LogisticRegression`` with a very large ``C`` (near-unpenalized
-    L2) so AIC from ``2k - 2 log L`` matches usual MLE stepwise practice.
+    frame), the model that lowers AIC by at least ``min_delta`` when the
+    feature is added is chosen; ties break by feature name. Stops when no
+    eligible feature meets that threshold. Fits ``LogisticRegression`` with a
+    very large ``C`` (near-unpenalized L2) so AIC from ``2k - 2 log L`` matches
+    usual MLE stepwise practice.
 
     Parameters
     ----------
@@ -1382,6 +1712,9 @@ def select_features_aic_forward(
     max_corr : float, default 0.5
         Maximum allowed absolute Pearson correlation between the newly added
         feature and **each** feature already in the model. Must lie in ``[0, 1]``.
+    min_delta : float, default 1e-9
+        Minimum AIC decrease for a forward step (``aic_before - aic_after``).
+        Must be finite and non-negative.
 
     Returns
     -------
@@ -1406,6 +1739,9 @@ def select_features_aic_forward(
 
     if max_corr < 0 or max_corr > 1:
         raise ValueError("max_corr must be between 0 and 1 inclusive.")
+
+    if not np.isfinite(min_delta) or min_delta < 0:
+        raise ValueError("min_delta must be a finite non-negative float.")
 
     order = list(dict.fromkeys(cols_feat))
     _validate_columns(df, "select_features_aic_forward", [col_target] + order)
@@ -1458,7 +1794,7 @@ def select_features_aic_forward(
                 continue
             if not np.isfinite(aic_new):
                 continue
-            if aic_new < aic_old - 1e-9:
+            if (aic_old - aic_new) >= min_delta:
                 trials.append((aic_new, f, float(peak), prob))
 
         if not trials:
@@ -1506,19 +1842,25 @@ def select_features_bic_backward(
     cols_feat: list[str],
     col_target: str,
     max_corr: float = 0.5,
+    min_delta: float = 1e-9,
 ) -> tuple[list[str], pd.DataFrame]:
     """
     Backward stepwise logistic regression minimizing BIC with a correlation cap.
 
     Same procedure as :func:`select_features_aic_backward`, but each step
     minimizes **BIC** ``= k ln(n) - 2 log L`` on the modeling sample instead of
-    AIC. History columns use ``total_bic``, ``delta_bic``, ``roc_auc``, and ``gini``.
+    AIC. A backward step is taken only if BIC decreases by at least
+    ``min_delta``. History columns use ``total_bic``, ``delta_bic``,
+    ``roc_auc``, and ``gini``.
     """
     if not cols_feat:
         raise ValueError("cols_feat must be a non-empty list of column names.")
 
     if max_corr < 0 or max_corr > 1:
         raise ValueError("max_corr must be between 0 and 1 inclusive.")
+
+    if not np.isfinite(min_delta) or min_delta < 0:
+        raise ValueError("min_delta must be a finite non-negative float.")
 
     order = list(dict.fromkeys(cols_feat))
     _validate_columns(df, "select_features_bic_backward", [col_target] + order)
@@ -1591,7 +1933,7 @@ def select_features_bic_backward(
                     continue
             if not np.isfinite(bic_new):
                 continue
-            if bic_new < bic_cur - 1e-9:
+            if (bic_cur - bic_new) >= min_delta:
                 trials.append((bic_new, v, nxt, prob))
 
         if not trials:
@@ -1641,19 +1983,24 @@ def select_features_bic_forward(
     cols_feat: list[str],
     col_target: str,
     max_corr: float = 0.5,
+    min_delta: float = 1e-9,
 ) -> tuple[list[str], pd.DataFrame]:
     """
     Forward stepwise logistic regression minimizing BIC with a correlation cap.
 
     Same procedure as :func:`select_features_aic_forward`, but each step
     minimizes **BIC** ``= k ln(n) - 2 log L`` on the modeling sample instead of
-    AIC. History columns use ``total_bic``, ``delta_bic``, ``roc_auc``, and ``gini``.
+    AIC. A feature is added only if BIC decreases by at least ``min_delta``.
+    History columns use ``total_bic``, ``delta_bic``, ``roc_auc``, and ``gini``.
     """
     if not cols_feat:
         raise ValueError("cols_feat must be a non-empty list of column names.")
 
     if max_corr < 0 or max_corr > 1:
         raise ValueError("max_corr must be between 0 and 1 inclusive.")
+
+    if not np.isfinite(min_delta) or min_delta < 0:
+        raise ValueError("min_delta must be a finite non-negative float.")
 
     order = list(dict.fromkeys(cols_feat))
     _validate_columns(df, "select_features_bic_forward", [col_target] + order)
@@ -1706,7 +2053,7 @@ def select_features_bic_forward(
                 continue
             if not np.isfinite(bic_new):
                 continue
-            if bic_new < bic_old - 1e-9:
+            if (bic_old - bic_new) >= min_delta:
                 trials.append((bic_new, f, float(peak), prob))
 
         if not trials:
@@ -1778,6 +2125,7 @@ def select_features_auc_backward(
     cols_feat: list[str],
     col_target: str,
     max_corr: float = 0.5,
+    min_delta: float = 0.005,
 ) -> tuple[list[str], pd.DataFrame]:
     """
     Backward stepwise logistic regression maximizing training ROC-AUC.
@@ -1785,8 +2133,9 @@ def select_features_auc_backward(
     Same initial correlation screen as :func:`select_features_aic_backward`.
     Each step removes the feature whose removal yields the **highest** training
     ROC-AUC among all single removals (tie-break: lexicographically smallest
-    eliminated name),     provided that AUC **strictly increases** versus the
-    current model. Stops when no removal improves training ROC-AUC.
+    eliminated name), provided training ROC-AUC increases by at least
+    ``min_delta`` versus the current model. Stops when no removal meets that
+    threshold.
 
     Parameters
     ----------
@@ -1798,6 +2147,9 @@ def select_features_auc_backward(
         Binary outcome (two distinct numeric values after coercion).
     max_corr : float, default 0.5
         Initial-set correlation bound; must lie in ``[0, 1]``.
+    min_delta : float, default 1e-9
+        Minimum training ROC-AUC increase for a backward step
+        (``auc_after - auc_before``). Must be finite and non-negative.
 
     Returns
     -------
@@ -1812,6 +2164,9 @@ def select_features_auc_backward(
 
     if max_corr < 0 or max_corr > 1:
         raise ValueError("max_corr must be between 0 and 1 inclusive.")
+
+    if not np.isfinite(min_delta) or min_delta < 0:
+        raise ValueError("min_delta must be a finite non-negative float.")
 
     order = list(dict.fromkeys(cols_feat))
     _validate_columns(df, "select_features_auc_backward", [col_target] + order)
@@ -1891,7 +2246,7 @@ def select_features_auc_backward(
                     continue
             if not np.isfinite(auc_new):
                 continue
-            if auc_new > auc_cur + 1e-9:
+            if (auc_new - auc_cur) >= min_delta:
                 trials.append((auc_new, v, nxt, prob))
 
         if not trials:
@@ -1938,15 +2293,16 @@ def select_features_auc_forward(
     cols_feat: list[str],
     col_target: str,
     max_corr: float = 0.5,
+    min_delta: float = 0.005,
 ) -> tuple[list[str], pd.DataFrame]:
     """
     Forward stepwise logistic regression maximizing training ROC-AUC.
 
     Same correlation rule as :func:`select_features_aic_forward`. Starts from
     an intercept-only probability; each step adds the eligible feature whose
-    inclusion yields the **highest** training ROC-AUC, provided AUC **strictly
-    increases** (tie-break: lexicographically smallest added name). Stops
-    when no candidate improves AUC.
+    inclusion yields the **highest** training ROC-AUC, provided training AUC
+    increases by at least ``min_delta`` (tie-break: lexicographically
+    smallest added name). Stops when no candidate meets that threshold.
 
     Parameters
     ----------
@@ -1959,6 +2315,9 @@ def select_features_auc_forward(
     max_corr : float, default 0.5
         Maximum absolute Pearson correlation to each already-selected feature.
         Must lie in ``[0, 1]``.
+    min_delta : float, default 1e-9
+        Minimum training ROC-AUC increase to add a feature
+        (``auc_after - auc_before``). Must be finite and non-negative.
 
     Returns
     -------
@@ -1973,6 +2332,9 @@ def select_features_auc_forward(
 
     if max_corr < 0 or max_corr > 1:
         raise ValueError("max_corr must be between 0 and 1 inclusive.")
+
+    if not np.isfinite(min_delta) or min_delta < 0:
+        raise ValueError("min_delta must be a finite non-negative float.")
 
     order = list(dict.fromkeys(cols_feat))
     _validate_columns(df, "select_features_auc_forward", [col_target] + order)
@@ -2030,7 +2392,7 @@ def select_features_auc_forward(
                 continue
             if not np.isfinite(auc_new):
                 continue
-            if auc_new > auc_old + 1e-9:
+            if (auc_new - auc_old) >= min_delta:
                 trials.append((auc_new, f, float(peak), prob))
 
         if not trials:
@@ -2073,13 +2435,13 @@ def select_features_auc_forward(
 def get_score_predictive_power_timely(
     df: pd.DataFrame,
     col_score: str,
-    col_time: str,
+    col_period: str,
     col_target: str,
 ) -> pd.DataFrame:
     """
     ROC AUC of a model score vs. binary label, by time period.
 
-    For each distinct ``col_time`` value, rows in that slice are used to
+    For each distinct ``col_period`` value, rows in that slice are used to
     compute ``sklearn.metrics.roc_auc_score`` with ``col_score`` as the
     ranking score and ``col_target`` as the binary outcome. This summarizes
     how well the **same score column** separates the classes within each
@@ -2093,7 +2455,7 @@ def get_score_predictive_power_timely(
         Name of the numeric score column (e.g. probability, logit, or risk
         score). Coerced with ``pd.to_numeric(..., errors="coerce")``; rows
         with missing score or label are dropped for that period's AUC.
-    col_time : str
+    col_period : str
         Period column (daily, monthly, etc.). All non-null unique values are
         used, sorted ascending.
     col_target : str
@@ -2103,20 +2465,24 @@ def get_score_predictive_power_timely(
     Returns
     -------
     pd.DataFrame
-        Columns: ``time_period``, ``aucroc``. One row per period. ``aucroc``
-        is ``NaN`` when undefined (e.g. a single class in the slice).
+        One row per period. Columns: ``time_period`` (value from ``col_period``),
+        ``aucroc``, ``gini`` (``2 * aucroc - 1`` clipped to ``[-1, 1]``, or
+        ``NaN`` when AUC is undefined), ``count`` (complete-case row count for
+        that slice's AUC), ``count_positive`` (count of the numerically higher
+        label when exactly two classes exist among complete cases; else
+        ``NaN``), ``positive_rate`` (``count_positive / count``).
 
     Raises
     ------
     ValueError
-        If ``col_score``, ``col_time``, or ``col_target`` is not in ``df``.
+        If ``col_score``, ``col_period``, or ``col_target`` is not in ``df``.
 
     Notes
     -----
     - Same semantics as :func:`get_feature_predictive_power_timely`, but for
       one model output column; see that function's Notes on AUC ``< 0.5``.
-    - **Agent / MCP:** Fixed schema (``time_period``, ``aucroc``) for tool
-      responses.
+    - **Agent / MCP:** Stable column set aligned with
+      :func:`get_score_predictive_power_data_type`.
 
     Examples
     --------
@@ -2132,20 +2498,52 @@ def get_score_predictive_power_timely(
     ... })
     >>> out = get_score_predictive_power_timely(df, "score", "t", "y")
     >>> list(out.columns)
-    ['time_period', 'aucroc']
+    ['time_period', 'aucroc', 'gini', 'count', 'count_positive', 'positive_rate']
     """
-    _validate_columns(df, "df", [col_score, col_time, col_target])
+    _validate_columns(df, "df", [col_score, col_period, col_target])
 
-    periods = sorted(df[col_time].dropna().unique().tolist())
-    rows: list[dict] = []
+    periods = sorted(df[col_period].dropna().unique().tolist())
+    rows: list[dict[str, Any]] = []
     for t in periods:
-        sub = df.loc[df[col_time] == t]
+        sub = df.loc[df[col_period] == t]
         if len(sub) == 0:
             continue
+        y = pd.to_numeric(sub[col_target], errors="coerce")
+        x = pd.to_numeric(sub[col_score], errors="coerce")
+        valid = y.notna() & x.notna()
+        yv = y.loc[valid]
+        n = int(len(yv))
         auc = _roc_auc_binary_feature(sub[col_target], sub[col_score])
-        rows.append({"time_period": t, "aucroc": auc})
+        gini = _gini_binary_from_auc(auc)
+        if n > 0 and yv.nunique() == 2:
+            hi = float(sorted(yv.unique().tolist())[-1])
+            count_positive = int((yv == hi).sum())
+            positive_rate = float(count_positive / n)
+        else:
+            count_positive = float(np.nan)
+            positive_rate = float(np.nan)
+        rows.append(
+            {
+                "time_period": t,
+                "aucroc": auc,
+                "gini": gini,
+                "count": n,
+                "count_positive": count_positive,
+                "positive_rate": positive_rate,
+            }
+        )
 
-    out = pd.DataFrame(rows, columns=["time_period", "aucroc"])
+    out = pd.DataFrame(
+        rows,
+        columns=[
+            "time_period",
+            "aucroc",
+            "gini",
+            "count",
+            "count_positive",
+            "positive_rate",
+        ],
+    )
     return out
 
 
@@ -2184,12 +2582,20 @@ def get_score_predictive_power_data_type(
     Returns
     -------
     pd.DataFrame
-        Columns: ``time_period``, ``aucroc``. One row per distinct
-        ``col_type`` value. Here ``time_period`` is the **cohort key** (the
-        split string from ``col_type``), not a calendar period, so this frame
-        matches the column shape of :func:`get_score_predictive_power_timely`
-        for generic tooling. ``aucroc`` is ``NaN`` when undefined (e.g. only
-        one class in the slice).
+        One row per distinct ``col_type`` value (sorted). Columns:
+
+        - ``time_period``: cohort key (split string from ``col_type``), same
+          name as :func:`get_score_predictive_power_timely` for tooling.
+        - ``aucroc``: ROC AUC on rows with non-null score and label after
+          numeric coercion (``NaN`` when undefined).
+        - ``gini``: ``2 * aucroc - 1`` clipped to ``[-1, 1]``, or ``NaN`` when
+          AUC is undefined.
+        - ``count``: number of complete-case rows used for that slice's AUC.
+        - ``count_positive``: count of the numerically **higher** label class
+          among those rows (only when exactly two distinct labels exist after
+          coercion; otherwise ``NaN``).
+        - ``positive_rate``: ``count_positive / count`` (``NaN`` when
+          ``count_positive`` is undefined or ``count`` is 0).
 
     Raises
     ------
@@ -2200,8 +2606,8 @@ def get_score_predictive_power_data_type(
     -----
     - Same AUC semantics as :func:`get_score_predictive_power_timely`; see
       that function's Notes on AUC ``< 0.5``.
-    - **Agent / MCP:** Fixed schema ``(time_period, aucroc)`` with documented
-      reuse of ``time_period`` as the split label for interoperability.
+    - **Agent / MCP:** Stable column set including ``time_period``, ``aucroc``,
+      ``gini``, ``count``, ``count_positive``, ``positive_rate``.
 
     Examples
     --------
@@ -2218,23 +2624,426 @@ def get_score_predictive_power_data_type(
     ... })
     >>> out = get_score_predictive_power_data_type(df, "score", "split", "y")
     >>> list(out.columns)
-    ['time_period', 'aucroc']
+    ['time_period', 'aucroc', 'gini', 'count', 'count_positive', 'positive_rate']
     >>> len(out)
     3
     """
     _validate_columns(df, "df", [col_score, col_type, col_target])
 
     splits = sorted(df[col_type].dropna().astype(str).unique().tolist())
-    rows: list[dict] = []
+    rows: list[dict[str, Any]] = []
     for label in splits:
         sub = df.loc[df[col_type].astype(str) == label]
         if len(sub) == 0:
             continue
+        y = pd.to_numeric(sub[col_target], errors="coerce")
+        x = pd.to_numeric(sub[col_score], errors="coerce")
+        valid = y.notna() & x.notna()
+        yv = y.loc[valid]
+        n = int(len(yv))
         auc = _roc_auc_binary_feature(sub[col_target], sub[col_score])
-        rows.append({"time_period": label, "aucroc": auc})
+        gini = _gini_binary_from_auc(auc)
+        if n > 0 and yv.nunique() == 2:
+            hi = float(sorted(yv.unique().tolist())[-1])
+            count_positive = int((yv == hi).sum())
+            positive_rate = float(count_positive / n)
+        else:
+            count_positive = float(np.nan)
+            positive_rate = float(np.nan)
+        rows.append(
+            {
+                "time_period": label,
+                "aucroc": auc,
+                "gini": gini,
+                "count": n,
+                "count_positive": count_positive,
+                "positive_rate": positive_rate,
+            }
+        )
 
-    out = pd.DataFrame(rows, columns=["time_period", "aucroc"])
+    out = pd.DataFrame(
+        rows,
+        columns=[
+            "time_period",
+            "aucroc",
+            "gini",
+            "count",
+            "count_positive",
+            "positive_rate",
+        ],
+    )
     return out
+
+
+def get_score_predictive_power_data_type_bootstrap(
+    df: pd.DataFrame,
+    col_score: str,
+    col_type: str,
+    col_target: str,
+    *,
+    n_data: int = 100,
+    n_iteration: int = 1000,
+    random_seed: int = 42,
+) -> pd.DataFrame:
+    """
+    Bootstrap distribution of score AUC / Gini by ``col_type`` stratum.
+
+    For each distinct non-null ``col_type`` value (same strata as
+    :func:`get_score_predictive_power_data_type`), complete cases (non-null
+    numeric target and score) form the resampling pool. Each of ``n_iteration``
+    iterations draws ``n_data`` rows **with replacement** from that pool,
+    computes ROC AUC and Gini (``2 * AUC - 1``, clipped), and the     positive rate
+    of the numerically higher label (defined on the **full** pool when it has
+    exactly two classes). ``mean_positive_rate`` is the mean of that rate over
+    **all** iterations. AUC/Gini percentiles and means use only iterations where
+    the bootstrap draw contains both classes so AUC is defined.
+
+    Parameters
+    ----------
+    df : pd.DataFrame
+        Rows with score, split label, and binary label.
+    col_score : str
+        Score column; coerced with ``pd.to_numeric(..., errors="coerce")``.
+    col_type : str
+        Split / cohort label column; unique non-null string values, sorted.
+    col_target : str
+        Binary label (two distinct values after coercion; typically ``0``/``1``).
+    n_data : int, default 100
+        Bootstrap sample size (drawn with replacement per iteration).
+    n_iteration : int, default 1000
+        Number of bootstrap draws per stratum.
+    random_seed : int, default 42
+        Seed for :class:`numpy.random.Generator`.
+
+    Returns
+    -------
+    pd.DataFrame
+        One row per ``col_type`` stratum. Columns: ``time_period`` (stratum
+        key), ``CI_5_gini``, ``mean_gini``, ``CI_95_gini``, ``CI_5_aucroc``,
+        ``mean_auc``, ``CI_95_aucroc``, ``mean_positive_rate``. CI columns use
+        the 5th and 95th percentiles of the bootstrap AUC/Gini distributions.
+        ``mean_auc`` / ``mean_gini`` use only finite AUC/Gini bootstrap values;
+        if none, they are ``NaN``. ``mean_positive_rate`` averages the positive
+        rate (fraction with the numerically higher full-pool label) over every
+        iteration.
+
+    Raises
+    ------
+    ValueError
+        If required columns are missing, ``n_data < 2``, or ``n_iteration < 1``.
+    """
+    _validate_columns(df, "df", [col_score, col_type, col_target])
+    if int(n_data) < 2:
+        raise ValueError("n_data must be at least 2.")
+    if int(n_iteration) < 1:
+        raise ValueError("n_iteration must be at least 1.")
+
+    def _pct5_95_mean(vals: list[float]) -> tuple[float, float, float]:
+        if not vals:
+            return float(np.nan), float(np.nan), float(np.nan)
+        a = np.asarray(vals, dtype=float)
+        a = a[np.isfinite(a)]
+        if a.size == 0:
+            return float(np.nan), float(np.nan), float(np.nan)
+        return (
+            float(np.percentile(a, 5.0)),
+            float(np.mean(a)),
+            float(np.percentile(a, 95.0)),
+        )
+
+    rng = np.random.default_rng(int(random_seed))
+    splits = sorted(df[col_type].dropna().astype(str).unique().tolist())
+    rows: list[dict[str, Any]] = []
+
+    for label in splits:
+        sub = df.loc[df[col_type].astype(str) == label]
+        if len(sub) == 0:
+            continue
+        y = pd.to_numeric(sub[col_target], errors="coerce")
+        x = pd.to_numeric(sub[col_score], errors="coerce")
+        valid = y.notna() & x.notna()
+        yv = y.loc[valid]
+        y_arr = yv.to_numpy(dtype=float)
+        x_arr = x.loc[valid].to_numpy(dtype=float)
+        n_pool = int(len(y_arr))
+        if n_pool < 2:
+            rows.append(
+                {
+                    "time_period": label,
+                    "CI_5_gini": float(np.nan),
+                    "mean_gini": float(np.nan),
+                    "CI_95_gini": float(np.nan),
+                    "CI_5_aucroc": float(np.nan),
+                    "mean_auc": float(np.nan),
+                    "CI_95_aucroc": float(np.nan),
+                    "mean_positive_rate": float(np.nan),
+                }
+            )
+            continue
+
+        uniq = np.unique(y_arr)
+        if len(uniq) != 2:
+            rows.append(
+                {
+                    "time_period": label,
+                    "CI_5_gini": float(np.nan),
+                    "mean_gini": float(np.nan),
+                    "CI_95_gini": float(np.nan),
+                    "CI_5_aucroc": float(np.nan),
+                    "mean_auc": float(np.nan),
+                    "CI_95_aucroc": float(np.nan),
+                    "mean_positive_rate": float(np.nan),
+                }
+            )
+            continue
+
+        hi = float(sorted(uniq.tolist())[-1])
+        nd = int(n_data)
+        ni = int(n_iteration)
+
+        aucs: list[float] = []
+        ginis: list[float] = []
+        pos_rates: list[float] = []
+
+        for _ in range(ni):
+            idx = rng.integers(0, n_pool, size=nd, endpoint=False)
+            y_b = y_arr[idx]
+            x_b = x_arr[idx]
+            pos_rates.append(float(np.mean(y_b == hi)))
+            if len(np.unique(y_b)) < 2:
+                continue
+            try:
+                auc_b = float(roc_auc_score(y_b, x_b))
+            except ValueError:
+                continue
+            ginis.append(float(_gini_binary_from_auc(auc_b)))
+            aucs.append(auc_b)
+
+        ci5_g, mean_g, ci95_g = _pct5_95_mean(ginis)
+        ci5_a, mean_a, ci95_a = _pct5_95_mean(aucs)
+        mean_pr = float(np.mean(pos_rates))
+
+        rows.append(
+            {
+                "time_period": label,
+                "CI_5_gini": ci5_g,
+                "mean_gini": mean_g,
+                "CI_95_gini": ci95_g,
+                "CI_5_aucroc": ci5_a,
+                "mean_auc": mean_a,
+                "CI_95_aucroc": ci95_a,
+                "mean_positive_rate": mean_pr,
+            }
+        )
+
+    out = pd.DataFrame(
+        rows,
+        columns=[
+            "time_period",
+            "CI_5_gini",
+            "mean_gini",
+            "CI_95_gini",
+            "CI_5_aucroc",
+            "mean_auc",
+            "CI_95_aucroc",
+            "mean_positive_rate",
+        ],
+    )
+    return out
+
+
+def compare_score_predictive_power_data_type_bootstrap(
+    df: pd.DataFrame,
+    col_score_champion: str,
+    col_score_challenger: str,
+    col_type: str,
+    col_target: str,
+    n_data: int = 100,
+    n_iteration: int = 1000,
+    *,
+    random_seed: int = 42,
+) -> pd.DataFrame:
+    """
+    Bootstrap AUC and Gini for champion vs. challenger score by ``col_type``.
+
+    For each distinct non-null ``col_type`` stratum (same keys as
+    :func:`get_score_predictive_power_data_type`), complete cases with non-null
+    numeric ``col_target``, ``col_score_champion``, and ``col_score_challenger``
+    form the resampling pool for that stratum. Each iteration draws ``n_data``
+    rows with replacement and evaluates both scores on the same ``y`` draw.
+    ``mean_positive_rate`` averages the positive-class fraction over all
+    iterations; AUC/Gini summaries use only iterations where the bootstrap ``y``
+    has two classes.
+
+    Parameters
+    ----------
+    df : pd.DataFrame
+        Input data.
+    col_score_champion : str
+        Champion score column (numeric coercion).
+    col_score_challenger : str
+        Challenger score column (numeric coercion).
+    col_type : str
+        Split / cohort label; unique non-null string values, sorted ascending.
+    col_target : str
+        Binary label (exactly two distinct values after coercion on each pool).
+    n_data : int, default 100
+        Bootstrap sample size per iteration.
+    n_iteration : int, default 1000
+        Number of bootstrap iterations per stratum.
+    random_seed : int, default 42
+        Base seed; each stratum uses a deterministic offset for its RNG.
+
+    Returns
+    -------
+    pd.DataFrame
+        One row per ``col_type`` value. Columns: ``time_period`` (stratum key),
+        then champion/challenger CI and mean columns for Gini and AUC, and
+        ``mean_positive_rate``.
+
+    Raises
+    ------
+    ValueError
+        If columns are missing, ``n_data < 2``, or ``n_iteration < 1``.
+    """
+    _validate_columns(
+        df,
+        "df",
+        [col_score_champion, col_score_challenger, col_type, col_target],
+    )
+    if int(n_data) < 2:
+        raise ValueError("n_data must be at least 2.")
+    if int(n_iteration) < 1:
+        raise ValueError("n_iteration must be at least 1.")
+
+    def _pct5_95_mean(vals: list[float]) -> tuple[float, float, float]:
+        if not vals:
+            return float(np.nan), float(np.nan), float(np.nan)
+        a = np.asarray(vals, dtype=float)
+        a = a[np.isfinite(a)]
+        if a.size == 0:
+            return float(np.nan), float(np.nan), float(np.nan)
+        return (
+            float(np.percentile(a, 5.0)),
+            float(np.mean(a)),
+            float(np.percentile(a, 95.0)),
+        )
+
+    base_seed = int(random_seed)
+    splits = sorted(df[col_type].dropna().astype(str).unique().tolist())
+    rows: list[dict[str, Any]] = []
+
+    for si, label in enumerate(splits):
+        sub = df.loc[df[col_type].astype(str) == label]
+        if len(sub) == 0:
+            continue
+        y = pd.to_numeric(sub[col_target], errors="coerce")
+        xc = pd.to_numeric(sub[col_score_champion], errors="coerce")
+        xh = pd.to_numeric(sub[col_score_challenger], errors="coerce")
+        valid = y.notna() & xc.notna() & xh.notna()
+        y_arr = y.loc[valid].to_numpy(dtype=float)
+        champ_arr = xc.loc[valid].to_numpy(dtype=float)
+        chall_arr = xh.loc[valid].to_numpy(dtype=float)
+        n_pool = int(len(y_arr))
+
+        nan_tail = {
+            "champion_CI_5_gini": float(np.nan),
+            "champion_mean_gini": float(np.nan),
+            "champion_CI_95_gini": float(np.nan),
+            "challenger_CI_5_gini": float(np.nan),
+            "challenger_mean_gini": float(np.nan),
+            "challenger_CI_95_gini": float(np.nan),
+            "champion_CI_5_aucroc": float(np.nan),
+            "champion_mean_auc": float(np.nan),
+            "champion_CI_95_aucroc": float(np.nan),
+            "challenger_CI_5_aucroc": float(np.nan),
+            "challenger_mean_auc": float(np.nan),
+            "challenger_CI_95_aucroc": float(np.nan),
+            "mean_positive_rate": float(np.nan),
+        }
+
+        if n_pool < 2:
+            rows.append({"time_period": label, **nan_tail})
+            continue
+
+        uniq = np.unique(y_arr)
+        if len(uniq) != 2:
+            rows.append({"time_period": label, **nan_tail})
+            continue
+
+        hi = float(sorted(uniq.tolist())[-1])
+        nd = int(n_data)
+        ni = int(n_iteration)
+        rng = np.random.default_rng(base_seed + si * 1_000_003)
+
+        auc_champ: list[float] = []
+        gini_champ: list[float] = []
+        auc_chall: list[float] = []
+        gini_chall: list[float] = []
+        pos_rates: list[float] = []
+
+        for _ in range(ni):
+            idx = rng.integers(0, n_pool, size=nd, endpoint=False)
+            y_b = y_arr[idx]
+            c_b = champ_arr[idx]
+            h_b = chall_arr[idx]
+            pos_rates.append(float(np.mean(y_b == hi)))
+            if len(np.unique(y_b)) < 2:
+                continue
+            try:
+                auc_c = float(roc_auc_score(y_b, c_b))
+                auc_h = float(roc_auc_score(y_b, h_b))
+            except ValueError:
+                continue
+            auc_champ.append(auc_c)
+            gini_champ.append(float(_gini_binary_from_auc(auc_c)))
+            auc_chall.append(auc_h)
+            gini_chall.append(float(_gini_binary_from_auc(auc_h)))
+
+        c5g, cmg, c95g = _pct5_95_mean(gini_champ)
+        h5g, hmg, h95g = _pct5_95_mean(gini_chall)
+        c5a, cma, c95a = _pct5_95_mean(auc_champ)
+        h5a, hma, h95a = _pct5_95_mean(auc_chall)
+        mean_pr = float(np.mean(pos_rates)) if pos_rates else float(np.nan)
+
+        rows.append(
+            {
+                "time_period": label,
+                "champion_CI_5_gini": c5g,
+                "champion_mean_gini": cmg,
+                "champion_CI_95_gini": c95g,
+                "challenger_CI_5_gini": h5g,
+                "challenger_mean_gini": hmg,
+                "challenger_CI_95_gini": h95g,
+                "champion_CI_5_aucroc": c5a,
+                "champion_mean_auc": cma,
+                "champion_CI_95_aucroc": c95a,
+                "challenger_CI_5_aucroc": h5a,
+                "challenger_mean_auc": hma,
+                "challenger_CI_95_aucroc": h95a,
+                "mean_positive_rate": mean_pr,
+            }
+        )
+
+    return pd.DataFrame(
+        rows,
+        columns=[
+            "time_period",
+            "champion_CI_5_gini",
+            "champion_mean_gini",
+            "champion_CI_95_gini",
+            "challenger_CI_5_gini",
+            "challenger_mean_gini",
+            "challenger_CI_95_gini",
+            "champion_CI_5_aucroc",
+            "champion_mean_auc",
+            "champion_CI_95_aucroc",
+            "challenger_CI_5_aucroc",
+            "challenger_mean_auc",
+            "challenger_CI_95_aucroc",
+            "mean_positive_rate",
+        ],
+    )
 
 
 def get_feature_dtype(
@@ -3287,10 +4096,589 @@ def get_month_from_date(df: pd.DataFrame, col_time: str) -> list[int]:
     )
 
 
+def _prepare_xy_binary_logreg(
+    df: pd.DataFrame,
+    feat_cols: list[str],
+    col_target: str,
+) -> tuple[np.ndarray, np.ndarray, list[str]]:
+    """Complete-case numeric matrix and binary ``y`` (higher distinct target = 1)."""
+    order = list(dict.fromkeys(feat_cols))
+    _validate_columns(df, "df", [col_target] + order)
+    sub = df[[col_target] + order].apply(pd.to_numeric, errors="coerce").dropna()
+    if len(sub) < 2:
+        raise ValueError("Insufficient complete-case rows for target and features.")
+    y_raw = sub[col_target].to_numpy(dtype=float)
+    uniq = np.unique(y_raw)
+    if len(uniq) != 2:
+        raise ValueError(
+            "col_target must have exactly two distinct numeric values in this subset."
+        )
+    _lo, hi = sorted(uniq.tolist())[:2]
+    y01 = (y_raw == hi).astype(int)
+    X = sub[order].to_numpy(dtype=float)
+    return X, y01, order
+
+
+def _auc_gini_safe(y_true: np.ndarray, proba: np.ndarray) -> tuple[float, float]:
+    try:
+        auc = float(roc_auc_score(y_true, proba))
+    except ValueError:
+        auc = float(np.nan)
+    return auc, _gini_binary_from_auc(auc)
+
+
+def _sklearn_uses_l1_ratio_for_penalty() -> bool:
+    """
+    True for scikit-learn >= 1.8, where ``penalty=`` on ``LogisticRegression`` is
+    deprecated in favor of ``l1_ratio`` (0 = L2, 1 = L1).
+    """
+    import sklearn
+
+    s = str(getattr(sklearn, "__version__", "0")).split(" ")[0].strip()
+    chunks = s.split(".")
+    if not chunks:
+        return False
+    mj_s = "".join(ch for ch in chunks[0] if ch.isdigit())
+    if not mj_s:
+        return False
+    major = int(mj_s)
+    minor = 0
+    if len(chunks) > 1:
+        mn_s = "".join(ch for ch in chunks[1] if ch.isdigit())
+        if mn_s:
+            minor = int(mn_s)
+    return (major, minor) >= (1, 8)
+
+
+def _logreg_tune_kwds(
+    *,
+    regularization: str,
+    C: float,
+    random_state: int,
+    max_iter: int,
+) -> dict[str, Any]:
+    """Keyword args for ``LogisticRegression`` (sklearn 1.8+ vs older)."""
+    C = float(C)
+    rs = int(random_state)
+    mi = int(max_iter)
+    if regularization not in ("l1", "l2"):
+        raise ValueError("regularization must be 'l1' or 'l2'.")
+    if _sklearn_uses_l1_ratio_for_penalty():
+        if regularization == "l1":
+            return {
+                "C": C,
+                "l1_ratio": 1.0,
+                "solver": "saga",
+                "max_iter": mi,
+                "random_state": rs,
+                "fit_intercept": True,
+            }
+        return {
+            "C": C,
+            "l1_ratio": 0.0,
+            "solver": "lbfgs",
+            "max_iter": mi,
+            "random_state": rs,
+            "fit_intercept": True,
+        }
+    if regularization == "l1":
+        return {
+            "penalty": "l1",
+            "solver": "saga",
+            "C": C,
+            "max_iter": mi,
+            "random_state": rs,
+            "fit_intercept": True,
+        }
+    return {
+        "penalty": "l2",
+        "solver": "lbfgs",
+        "C": C,
+        "max_iter": mi,
+        "random_state": rs,
+        "fit_intercept": True,
+    }
+
+
+def _cv_mean_auc_gini_logreg(
+    X: np.ndarray,
+    y01: np.ndarray,
+    C: float,
+    *,
+    penalty: str,
+    random_state: int,
+    kfold: int,
+) -> tuple[list[float], list[float], float, float]:
+    """Return per-fold AUCs/Ginis on validation folds and their means."""
+    skf = StratifiedKFold(
+        n_splits=int(kfold), shuffle=True, random_state=int(random_state)
+    )
+    fold_aucs: list[float] = []
+    fold_ginis: list[float] = []
+    for tr_idx, va_idx in skf.split(X, y01):
+        X_tr, y_tr = X[tr_idx], y01[tr_idx]
+        X_va, y_va = X[va_idx], y01[va_idx]
+        if X_tr.shape[0] < 2 or len(np.unique(y_tr)) < 2:
+            fold_aucs.append(float(np.nan))
+            fold_ginis.append(float(np.nan))
+            continue
+        clf = LogisticRegression(
+            **_logreg_tune_kwds(
+                regularization=penalty,
+                C=float(C),
+                random_state=int(random_state),
+                max_iter=10000,
+            )
+        )
+        try:
+            clf.fit(X_tr, y_tr)
+            p_va = clf.predict_proba(X_va)[:, 1]
+        except Exception:
+            fold_aucs.append(float(np.nan))
+            fold_ginis.append(float(np.nan))
+            continue
+        auc, gini = _auc_gini_safe(y_va, p_va)
+        fold_aucs.append(auc)
+        fold_ginis.append(gini)
+    mean_auc = float(np.nanmean(fold_aucs)) if fold_aucs else float(np.nan)
+    mean_gini = float(np.nanmean(fold_ginis)) if fold_ginis else float(np.nan)
+    return fold_aucs, fold_ginis, mean_auc, mean_gini
+
+
+def _train_logreg_tune_cv_core(
+    df: pd.DataFrame,
+    cols_feat_woe: list[str],
+    col_target: str,
+    col_type: str,
+    hyperparam_space: list[float],
+    *,
+    penalty: str,
+    best_param_key: str,
+    random_seed: int,
+    kfold: int,
+) -> tuple[dict[str, Any], LogisticRegression, pd.Series]:
+    """
+    Shared CV tuning on ``train``, model choice by valid AUC, report on train/valid/test.
+
+    Rows with ``col_type`` not in ``{'train','valid','test'}`` (e.g. ``oot``, ``hoot``)
+    are not used.
+    """
+    if not cols_feat_woe:
+        raise ValueError("cols_feat_woe must be a non-empty list of column names.")
+    C_list = [float(c) for c in hyperparam_space]
+    if not C_list:
+        raise ValueError("hyperparam_space must be a non-empty iterable of C values.")
+    if int(kfold) < 2:
+        raise ValueError("kfold must be at least 2.")
+    if penalty not in ("l1", "l2"):
+        raise ValueError("penalty must be 'l1' or 'l2'.")
+
+    _validate_columns(df, "df", [col_type, col_target])
+    ct = df[col_type].astype(str)
+    df_train = df.loc[ct == "train"]
+    df_valid = df.loc[ct == "valid"]
+    df_test = df.loc[ct == "test"]
+    if len(df_train) == 0:
+        raise ValueError("No rows with col_type == 'train'.")
+    if len(df_valid) == 0:
+        raise ValueError("No rows with col_type == 'valid' (required for tuning).")
+
+    X_tr, y_tr, feat_order = _prepare_xy_binary_logreg(df_train, cols_feat_woe, col_target)
+    X_va, y_va, _ = _prepare_xy_binary_logreg(df_valid, cols_feat_woe, col_target)
+    X_te: np.ndarray | None = None
+    y_te: np.ndarray | None = None
+    if len(df_test) > 0:
+        try:
+            X_te, y_te, _ = _prepare_xy_binary_logreg(df_test, cols_feat_woe, col_target)
+        except ValueError:
+            X_te, y_te = None, None
+
+    if len(np.unique(y_tr)) < 2:
+        raise ValueError("Training subset must contain two classes in col_target.")
+    if int(kfold) > len(X_tr):
+        raise ValueError(
+            f"kfold={kfold} exceeds number of training rows ({len(X_tr)})."
+        )
+
+    by_hp: list[dict[str, Any]] = []
+    best_C: float | None = None
+    best_idx = 0
+    best_valid_auc = float("-inf")
+
+    for i, C in enumerate(C_list):
+        fold_aucs, fold_ginis, cv_mean_auc, cv_mean_gini = _cv_mean_auc_gini_logreg(
+            X_tr,
+            y_tr,
+            C,
+            penalty=penalty,
+            random_state=int(random_seed),
+            kfold=int(kfold),
+        )
+        clf_full = LogisticRegression(
+            **_logreg_tune_kwds(
+                regularization=penalty,
+                C=float(C),
+                random_state=int(random_seed),
+                max_iter=10000,
+            )
+        )
+        try:
+            clf_full.fit(X_tr, y_tr)
+            p_tr = clf_full.predict_proba(X_tr)[:, 1]
+            p_va = clf_full.predict_proba(X_va)[:, 1]
+        except Exception:
+            train_auc = train_gini = float(np.nan)
+            valid_auc = valid_gini = float(np.nan)
+        else:
+            train_auc, train_gini = _auc_gini_safe(y_tr, p_tr)
+            valid_auc, valid_gini = _auc_gini_safe(y_va, p_va)
+
+        row = {
+            "C": float(C),
+            "train_cv_fold_aucs": [float(x) for x in fold_aucs],
+            "train_cv_fold_ginis": [float(x) for x in fold_ginis],
+            "train_cv_mean_auc": float(cv_mean_auc),
+            "train_cv_mean_gini": float(cv_mean_gini),
+            "train_fit_auc": float(train_auc),
+            "train_fit_gini": float(train_gini),
+            "valid_auc": float(valid_auc),
+            "valid_gini": float(valid_gini),
+        }
+        by_hp.append(row)
+
+        if np.isfinite(valid_auc) and valid_auc > best_valid_auc:
+            best_valid_auc = valid_auc
+            best_C = float(C)
+            best_idx = i
+
+    if best_C is None:
+        best_C = float(C_list[0])
+        best_idx = 0
+
+    best_model = LogisticRegression(
+        **_logreg_tune_kwds(
+            regularization=penalty,
+            C=float(best_C),
+            random_state=int(random_seed),
+            max_iter=10000,
+        )
+    )
+    best_model.fit(X_tr, y_tr)
+
+    p_tr_best = best_model.predict_proba(X_tr)[:, 1]
+    p_va_best = best_model.predict_proba(X_va)[:, 1]
+    train_best_auc, train_best_gini = _auc_gini_safe(y_tr, p_tr_best)
+    valid_best_auc, valid_best_gini = _auc_gini_safe(y_va, p_va_best)
+
+    best_row = by_hp[best_idx]
+    train_avg_auc = float(best_row["train_cv_mean_auc"])
+    train_avg_gini = float(best_row["train_cv_mean_gini"])
+
+    valid_aucs = [r["valid_auc"] for r in by_hp if np.isfinite(r["valid_auc"])]
+    valid_avg_auc = float(np.mean(valid_aucs)) if valid_aucs else float(np.nan)
+    valid_ginis = [r["valid_gini"] for r in by_hp if np.isfinite(r["valid_gini"])]
+    valid_avg_gini = float(np.mean(valid_ginis)) if valid_ginis else float(np.nan)
+
+    if (
+        X_te is not None
+        and y_te is not None
+        and len(X_te) > 0
+        and len(np.unique(y_te)) >= 2
+    ):
+        p_te_best = best_model.predict_proba(X_te)[:, 1]
+        test_best_auc, test_best_gini = _auc_gini_safe(y_te, p_te_best)
+        test_avg_auc = test_best_auc
+        test_avg_gini = test_best_gini
+    else:
+        test_best_auc = test_best_gini = float(np.nan)
+        test_avg_auc = test_avg_gini = float(np.nan)
+
+    coef = np.asarray(best_model.coef_).ravel()
+    importance = pd.Series(np.abs(coef), index=feat_order, name="importance")
+
+    split_block = {
+        "best_auc": float(train_best_auc),
+        "best_gini": float(train_best_gini),
+        best_param_key: float(best_C),
+        "average_auc": train_avg_auc,
+        "average_gini": train_avg_gini,
+    }
+    dict_statistics: dict[str, Any] = {
+        best_param_key: float(best_C),
+        "train": split_block,
+        "valid": {
+            "best_auc": float(valid_best_auc),
+            "best_gini": float(valid_best_gini),
+            best_param_key: float(best_C),
+            "average_auc": valid_avg_auc,
+            "average_gini": valid_avg_gini,
+        },
+        "test": {
+            "best_auc": float(test_best_auc),
+            "best_gini": float(test_best_gini),
+            best_param_key: float(best_C),
+            "average_auc": float(test_avg_auc),
+            "average_gini": float(test_avg_gini),
+        },
+        "by_hyperparameter": by_hp,
+    }
+
+    return dict_statistics, best_model, importance
+
+
+def train_logreg_l1_tune_cv(
+    df: pd.DataFrame,
+    cols_feat_woe: list[str],
+    col_target: str,
+    col_type: str,
+    l1_space: Iterable[float] | None = None,
+    random_seed: int = 42,
+    kfold: int = 5,
+) -> tuple[dict[str, Any], LogisticRegression, pd.Series]:
+    """
+    Tune ``LogisticRegression`` with L1 penalty using stratified CV on the train split.
+
+    Only rows with ``col_type`` in ``{'train','valid','test'}`` are used; ``oot``,
+    ``hoot``, and any other labels are ignored. For each inverse regularization
+    strength ``C`` in ``l1_space``, stratified ``kfold`` CV is run on **train**
+    rows only; the ``C`` with highest ROC-AUC on the **valid** split (model fit
+    on all train rows) is selected. The returned model is refit on full train
+    with that ``C``. Test metrics use the **test** split only (paper result).
+
+    Parameters
+    ----------
+    df : pd.DataFrame
+        Must contain ``col_target``, ``col_type``, and WoE feature columns.
+    cols_feat_woe : list of str
+        Predictor columns (deduplicated, first occurrence wins).
+    col_target : str
+        Binary target (two distinct numeric values after coercion; larger = 1).
+    col_type : str
+        Column with values ``train`` / ``valid`` / ``test`` (and possibly others
+        that are ignored).
+    l1_space : iterable of float, optional
+        ``C`` values for ``LogisticRegression`` (smaller ``C`` = stronger L1).
+        If omitted, uses ``(1e-3, 1e-2, 0.1, 1.0, 10.0, 100.0)``.
+    random_seed : int, default 42
+        ``random_state`` for the estimator and CV shuffling.
+    kfold : int, default 5
+        Number of stratified folds on the train subset.
+
+    Returns
+    -------
+    dict_statistics : dict
+        Top-level ``best_l1_param`` (chosen ``C``), nested ``train`` / ``valid`` /
+        ``test`` each with ``best_auc``, ``best_gini``, ``best_l1_param``,
+        ``average_auc``, ``average_gini`` (train averages are CV means at the best
+        ``C``; valid averages are means over the grid on the valid slice; test
+        ``average_*`` match ``best_*`` when test is non-empty), and
+        ``by_hyperparameter``: list of dicts with ``C``, CV fold AUCs/Ginis on
+        train, CV means, in-sample train AUC/Gini after full-train fit, and
+        valid AUC/Gini for that ``C``.
+    best_model : LogisticRegression
+        Fitted on all train rows at ``best_l1_param``.
+    feature_importance : pandas.Series
+        Absolute fitted coefficients (index = feature names).
+    """
+    # Default inverse-regularization ``C`` grid (sklearn: smaller ``C`` = stronger penalty).
+    _DEFAULT_L1_TUNING_C_VALUES: tuple[float, ...] = (
+        1e-5,
+        1e-4,
+        1e-3,
+        1e-2,
+        0.1,
+        1.0,
+        10.0,
+        100.0,
+        1000.0,
+        10000.0,
+    )
+    C_list = list(l1_space if l1_space is not None else _DEFAULT_L1_TUNING_C_VALUES)
+    return _train_logreg_tune_cv_core(
+        df,
+        cols_feat_woe,
+        col_target,
+        col_type,
+        C_list,
+        penalty="l1",
+        best_param_key="best_l1_param",
+        random_seed=random_seed,
+        kfold=kfold,
+    )
+
+
+def train_logreg_l2_tune_cv(
+    df: pd.DataFrame,
+    cols_feat_woe: list[str],
+    col_target: str,
+    col_type: str,
+    l2_space: Iterable[float] | None = None,
+    random_seed: int = 42,
+    kfold: int = 5,
+) -> tuple[dict[str, Any], LogisticRegression, pd.Series]:
+    """
+    Same as :func:`train_logreg_l1_tune_cv` but with L2 penalty and ``l2_space``
+    giving ``C`` values (default ``(1e-3, 1e-2, 0.1, 1.0, 10.0, 100.0)`` when
+    omitted). The statistics dict uses the key ``best_l2_param``.
+    """
+    # Default inverse-regularization ``C`` grid (sklearn: smaller ``C`` = stronger penalty).
+    _DEFAULT_L2_TUNING_C_VALUES: tuple[float, ...] = (
+        1e-5,
+        1e-4,
+        1e-3,
+        1e-2,
+        0.1,
+        1.0,
+        10.0,
+        100.0,
+        1000.0,
+        10000.0,
+    )
+    C_list = list(l2_space if l2_space is not None else _DEFAULT_L2_TUNING_C_VALUES)
+    return _train_logreg_tune_cv_core(
+        df,
+        cols_feat_woe,
+        col_target,
+        col_type,
+        C_list,
+        penalty="l2",
+        best_param_key="best_l2_param",
+        random_seed=random_seed,
+        kfold=kfold,
+    )
+
+
+def logreg_predict(
+    df: pd.DataFrame,
+    logreg_model: Any,
+    cols_feat_woe: list[str],
+) -> tuple[list[float], list[float], dict[str, list[str]]]:
+    """
+    Binary ``predict_proba`` from a fitted logistic regression on WoE columns.
+
+    Builds a design matrix in the same column order the model expects, then
+    calls ``predict_proba``. Column alignment uses ``feature_names_in_`` when
+    present (e.g. model fit on a ``DataFrame``); otherwise the first
+    ``coef_.shape[1]`` entries of ``cols_feat_woe`` are taken as the training
+    column order (extras are listed under ``cols_feat_woe_not_in_model``), as
+    with models from :func:`train_logreg_l1_tune_cv` /
+    :func:`train_logreg_l2_tune_cv` fit on numpy arrays without names.
+
+    Parameters
+    ----------
+    df : pd.DataFrame
+        Scoring frame; may omit rows or columns not used.
+    logreg_model
+        Fitted classifier with ``coef_``, ``classes_``, and ``predict_proba``.
+    cols_feat_woe : list of str
+        Candidate feature names (deduplicated, first occurrence wins). Used
+        for alignment checks and, when the model has no stored names, as the
+        ordered feature list.
+
+    Returns
+    -------
+    proba_0 : list of float
+        Probability of class ``0`` per row (same order as ``df``), aligned to
+        ``classes_``.
+    proba_1 : list of float
+        Probability of class ``1`` per row.
+    feature_issue_prediction : dict of list of str
+        ``cols_feat_woe_not_in_model``: names in ``cols_feat_woe`` not used by
+        the model; ``model_feature_not_in_cols_feat_woe``: model features absent
+        from ``cols_feat_woe``; ``model_feature_missing_from_dataframe``: model
+        features with no column in ``df``.
+
+    Raises
+    ------
+    ValueError
+        If the model is not binary, ``classes_`` are not the integer labels
+        ``0`` and ``1``, ``cols_feat_woe`` lists fewer names than ``coef_`` has columns
+        (when there are no ``feature_names_in_``), alignment is inconsistent, or
+        ``predict_proba`` is unavailable.
+    """
+    if not hasattr(logreg_model, "predict_proba"):
+        raise ValueError("logreg_model must implement predict_proba.")
+    coef = np.asarray(getattr(logreg_model, "coef_", None))
+    if coef.ndim != 2 or coef.shape[0] < 1:
+        raise ValueError("logreg_model must have a 2-D coef_ with one or more rows.")
+    n_model_feat = int(coef.shape[1])
+
+    order = list(dict.fromkeys(cols_feat_woe))
+    if not order:
+        raise ValueError("cols_feat_woe must be a non-empty list of column names.")
+
+    fni = getattr(logreg_model, "feature_names_in_", None)
+    if fni is not None:
+        model_feats = [str(x) for x in np.asarray(fni).tolist()]
+        if len(model_feats) != n_model_feat:
+            raise ValueError(
+                "logreg_model.feature_names_in_ length does not match coef_."
+            )
+    else:
+        if len(order) < n_model_feat:
+            raise ValueError(
+                "logreg_model has no feature_names_in_; cols_feat_woe must list at "
+                f"least {n_model_feat} names in training order (got {len(order)})."
+            )
+        if len(order) == n_model_feat:
+            model_feats = list(order)
+        else:
+            model_feats = list(order[:n_model_feat])
+
+    cols_set = set(order)
+    model_set = set(model_feats)
+    cols_feat_woe_not_in_model = [c for c in order if c not in model_set]
+    model_feature_not_in_cols_feat_woe = [c for c in model_feats if c not in cols_set]
+
+    n = len(df)
+    X_cols: list[np.ndarray] = []
+    model_feature_missing_from_dataframe: list[str] = []
+    for name in model_feats:
+        if name not in df.columns:
+            model_feature_missing_from_dataframe.append(name)
+            X_cols.append(np.zeros(n, dtype=float))
+        else:
+            v = pd.to_numeric(df[name], errors="coerce").to_numpy(dtype=float)
+            if v.shape[0] != n:
+                raise ValueError(f"Column {name!r} length does not match len(df).")
+            X_cols.append(v)
+    X = np.column_stack(X_cols) if X_cols else np.empty((n, 0), dtype=float)
+    X = np.nan_to_num(X, nan=0.0, posinf=0.0, neginf=0.0)
+
+    classes = np.asarray(logreg_model.classes_)
+    if classes.size != 2:
+        raise ValueError("logreg_predict only supports binary classifiers.")
+    labs = [int(np.asarray(x).item()) for x in classes.tolist()]
+    if set(labs) != {0, 1}:
+        raise ValueError(
+            "Binary model classes_ must be labels 0 and 1 (after coercion) for "
+            "proba_0/proba_1."
+        )
+    i0 = int(labs.index(0))
+    i1 = int(labs.index(1))
+
+    proba_mat = logreg_model.predict_proba(X)
+    p0 = proba_mat[:, i0].astype(float, copy=False)
+    p1 = proba_mat[:, i1].astype(float, copy=False)
+
+    proba_0 = p0.tolist()
+    proba_1 = p1.tolist()
+
+    feature_issue_prediction: dict[str, list[str]] = {
+        "cols_feat_woe_not_in_model": cols_feat_woe_not_in_model,
+        "model_feature_not_in_cols_feat_woe": model_feature_not_in_cols_feat_woe,
+        "model_feature_missing_from_dataframe": model_feature_missing_from_dataframe,
+    }
+    return proba_0, proba_1, feature_issue_prediction
+
+
 __all__ = [
     "compute_psi",
+    "get_timely_feature_psi",
+    "get_timely_feature_psi_woe",
     "get_timely_psi",
     "get_timely_binary_target_rate",
+    "get_timely_target_rate_feature_segment",
     "get_nan_rate",
     "get_nan_rate_timely",
     "get_target_rate_sample",
@@ -3306,6 +4694,8 @@ __all__ = [
     "get_feature_predictive_power_timely",
     "get_score_predictive_power_timely",
     "get_score_predictive_power_data_type",
+    "get_score_predictive_power_data_type_bootstrap",
+    "compare_score_predictive_power_data_type_bootstrap",
     "get_feature_dtype",
     "get_optimal_bin",
     "modify_optimal_bin",
@@ -3315,4 +4705,7 @@ __all__ = [
     "get_virtual_date",
     "get_day_from_date",
     "get_month_from_date",
+    "train_logreg_l1_tune_cv",
+    "train_logreg_l2_tune_cv",
+    "logreg_predict",
 ]
