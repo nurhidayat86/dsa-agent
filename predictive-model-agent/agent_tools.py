@@ -7,6 +7,7 @@ for tool schema generation.
 """
 
 from __future__ import annotations
+from pathlib import Path
 from typing import Any, Iterable, Optional
 
 import numpy as np
@@ -3808,6 +3809,253 @@ def get_woe_from_bp(
     df_woe = pd.DataFrame(woe_data, index=df.index)
     col_names = list(df_woe.columns)
     return df_woe, col_names, skipped
+
+
+def create_scorecard_model(
+    df: pd.DataFrame,
+    cols_feat: list[str],
+    logistic_regression_hyperparameters: dict[str, Any],
+    col_target: str,
+    binning_process: Any,
+    *,
+    base_score: float = 600,
+    pdo: float = 20,
+    odds: float = 50.0,
+    table_style: str = "detailed",
+    **fit_kwargs: Any,
+) -> tuple[pd.DataFrame, Any]:
+    """
+    Fit an optbinning PDO scorecard using raw features and a binary target.
+
+    A ``sklearn.linear_model.LogisticRegression`` is built as
+    ``LogisticRegression(**logistic_regression_hyperparameters)`` and passed to
+    optbinning. ``Scorecard.fit`` clones that estimator and fits it on WoE
+    features produced by the binning process.
+
+    Parameters
+    ----------
+    df : pandas.DataFrame
+        Must contain ``col_target`` and all ``cols_feat``.
+    cols_feat : list of str
+        Raw predictors passed as ``X`` to ``Scorecard.fit``.
+    logistic_regression_hyperparameters : dict
+        Keyword arguments for ``LogisticRegression`` (e.g. ``penalty``, ``C``,
+        ``solver``, ``max_iter``, ``class_weight``). An empty dict uses sklearn
+        defaults.
+    col_target : str
+        Binary target column.
+    binning_process : BinningProcess
+        optbinning ``BinningProcess`` (variable names should align with
+        ``cols_feat``).
+    base_score : float, default 600
+        PDO anchor: ``scorecard_points`` in optbinning.
+    pdo : float, default 20
+        Points to double the odds.
+    odds : float, default 50.0
+        Reference odds at ``base_score`` (business choice).
+    table_style : {"summary", "detailed"}, default "detailed"
+        Style for ``Scorecard.table``.
+    **fit_kwargs
+        Extra arguments forwarded to ``Scorecard.fit`` (e.g. ``check_input``).
+
+    Returns
+    -------
+    scorecard_table : pandas.DataFrame
+        Output of ``Scorecard.table(style=table_style)``.
+    scorecard : optbinning.scorecard.Scorecard
+        Fitted scorecard instance.
+    """
+    try:
+        from optbinning import Scorecard
+        from optbinning.binning.binning_process import BinningProcess
+    except ImportError as exc:  # pragma: no cover - optional dependency
+        raise ImportError(
+            "create_scorecard_model requires the 'optbinning' package. "
+            "Install with: pip install optbinning"
+        ) from exc
+
+    if not isinstance(binning_process, BinningProcess):
+        raise TypeError(
+            "binning_process must be an optbinning.BinningProcess instance."
+        )
+
+    if table_style not in ("summary", "detailed"):
+        raise ValueError('table_style must be "summary" or "detailed".')
+
+    cols_feat_u = list(dict.fromkeys(cols_feat))
+
+    _validate_columns(df, "df", cols_feat_u + [col_target])
+
+    if not isinstance(logistic_regression_hyperparameters, dict):
+        raise TypeError(
+            "logistic_regression_hyperparameters must be a dict of "
+            "LogisticRegression keyword arguments."
+        )
+
+    estimator = LogisticRegression(**logistic_regression_hyperparameters)
+
+    scaling_method_params = {
+        "pdo": float(pdo),
+        "odds": float(odds),
+        "scorecard_points": float(base_score),
+    }
+
+    scorecard = Scorecard(
+        binning_process=binning_process,
+        estimator=estimator,
+        scaling_method="pdo_odds",
+        scaling_method_params=scaling_method_params,
+    )
+
+    mask = df[col_target].notna()
+    X = df.loc[mask, cols_feat_u]
+    y = df.loc[mask, col_target]
+
+    scorecard.fit(X, y, **fit_kwargs)
+
+    scorecard_table = scorecard.table(style=table_style)
+    return scorecard_table, scorecard
+
+
+def _scorecard_plot_y_y_pred(
+    df: pd.DataFrame,
+    col_target: str,
+    col_score: str,
+    scorecard: Any,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Finite rows only; ``col_score`` is passed to optbinning as ``y_pred``."""
+    try:
+        from optbinning.scorecard import Scorecard as OptScorecard
+    except ImportError as exc:  # pragma: no cover - optional dependency
+        raise ImportError(
+            "scorecard plots require the 'optbinning' package. "
+            "Install with: pip install optbinning"
+        ) from exc
+
+    if not isinstance(scorecard, OptScorecard):
+        raise TypeError(
+            "scorecard must be an optbinning.scorecard.Scorecard instance."
+        )
+    if not getattr(scorecard, "_is_fitted", False):
+        raise ValueError("scorecard must be fitted before plotting.")
+
+    _validate_columns(df, "df", [col_target, col_score])
+
+    plot_df = (
+        df.loc[:, [col_target, col_score]]
+        .replace([np.inf, -np.inf], np.nan)
+        .dropna()
+    )
+    if len(plot_df) < 2:
+        raise ValueError(
+            "Need at least two rows with finite values in col_target and "
+            "col_score to plot."
+        )
+
+    y = plot_df[col_target].to_numpy(dtype=float)
+    y_pred = plot_df[col_score].to_numpy(dtype=float)
+    return y, y_pred
+
+
+def _scorecard_plot_save_path(figure_path: str | Path) -> str:
+    if not isinstance(figure_path, (str, Path)):
+        raise TypeError("figure_path must be a str or pathlib.Path.")
+    path = Path(figure_path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    return str(path)
+
+
+def scorecard_plot_auc_roc(
+    df: pd.DataFrame,
+    col_target: str,
+    col_score: str,
+    scorecard: Any,
+    figure_path: str | Path,
+    **savefig_kwargs: Any,
+) -> None:
+    """
+    Plot ROC / AUC using optbinning and save the figure to ``figure_path``.
+
+    ``col_score`` is passed as ``y_pred`` to optbinning (typically predicted
+    probability of the positive class, or any finite score used for ranking).
+
+    Parameters
+    ----------
+    df : pandas.DataFrame
+    col_target : str
+        Binary target column.
+    col_score : str
+        Score or probability column (finite values required per row used).
+    scorecard : optbinning.scorecard.Scorecard
+        Fitted scorecard (validates type and fitted state).
+    figure_path : str or pathlib.Path
+        Output file path; parent directories are created if missing.
+    **savefig_kwargs
+        Forwarded to ``matplotlib.pyplot.savefig``.
+    """
+    try:
+        from optbinning.scorecard import plot_auc_roc
+    except ImportError as exc:  # pragma: no cover
+        raise ImportError(
+            "scorecard_plot_auc_roc requires the 'optbinning' package. "
+            "Install with: pip install optbinning"
+        ) from exc
+
+    y, y_pred = _scorecard_plot_y_y_pred(df, col_target, col_score, scorecard)
+    fname = _scorecard_plot_save_path(figure_path)
+    plot_auc_roc(y, y_pred, savefig=True, fname=fname, **savefig_kwargs)
+
+
+def scorecard_plot_ks(
+    df: pd.DataFrame,
+    col_target: str,
+    col_score: str,
+    scorecard: Any,
+    figure_path: str | Path,
+    **savefig_kwargs: Any,
+) -> None:
+    """
+    Plot Kolmogorov–Smirnov curve via optbinning and save to ``figure_path``.
+
+    See :func:`scorecard_plot_auc_roc` for parameter semantics.
+    """
+    try:
+        from optbinning.scorecard import plot_ks
+    except ImportError as exc:  # pragma: no cover
+        raise ImportError(
+            "scorecard_plot_ks requires the 'optbinning' package. "
+            "Install with: pip install optbinning"
+        ) from exc
+
+    y, y_pred = _scorecard_plot_y_y_pred(df, col_target, col_score, scorecard)
+    fname = _scorecard_plot_save_path(figure_path)
+    plot_ks(y, y_pred, savefig=True, fname=fname, **savefig_kwargs)
+
+
+def scorecard_plot_cap(
+    df: pd.DataFrame,
+    col_target: str,
+    col_score: str,
+    scorecard: Any,
+    figure_path: str | Path,
+    **savefig_kwargs: Any,
+) -> None:
+    """
+    Plot cumulative accuracy profile (CAP) via optbinning and save to file.
+
+    See :func:`scorecard_plot_auc_roc` for parameter semantics.
+    """
+    try:
+        from optbinning.scorecard import plot_cap
+    except ImportError as exc:  # pragma: no cover
+        raise ImportError(
+            "scorecard_plot_cap requires the 'optbinning' package. "
+            "Install with: pip install optbinning"
+        ) from exc
+
+    y, y_pred = _scorecard_plot_y_y_pred(df, col_target, col_score, scorecard)
+    fname = _scorecard_plot_save_path(figure_path)
+    plot_cap(y, y_pred, savefig=True, fname=fname, **savefig_kwargs)
 
 
 def _stratify_labels(y: pd.Series) -> pd.Series | None:
