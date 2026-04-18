@@ -84,5 +84,4 @@ Thumbs.db
 .cursor/
 
 # -- Others --
-predictive-model-agent/data/
-predictive-model-agent/scorecard_runs/
+_smoke_monthly/

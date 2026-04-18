@@ -1,4 +1,4 @@
-# DSA Agent
+# Agentic VOC Insight
 
 This repository hosts tools and agents for data-science and analytics workflows. Each major capability lives in its **own top-level folder**; this file summarizes what exists today. **Additional folders** will be described here (and may include their own `README.md`) as the project grows.
 
@@ -9,7 +9,6 @@ This repository hosts tools and agents for data-science and analytics workflows.
 | Folder | Purpose |
 |--------|---------|
 | [`ai-data-generator/`](ai-data-generator/) | Synthetic **customer voice** for banks via Google **Gemini**: branch **feedback / complaints** and **telesales call-center** dialogues (VibeVoice-oriented transcripts) |
-| [`predictive-model-agent/`](predictive-model-agent/) | **`agent_tools.py`** — tabular helpers (splits, PSI, WoE, logistic tuning, optbinning, etc.). **`scorecard/`** — multi-phase scorecard pipeline with HITL gates and ADK-backed LLM agents; **`run_scorecard.py`** CLI; run artifacts under `scorecard_runs/`. Sample **HELOC** data and notebook ([details](predictive-model-agent/README.md), [`requirements.txt`](predictive-model-agent/requirements.txt)) |
 | [`vector-db-writer/`](vector-db-writer/) | **Ingest** synthetic (or real) bank-feedback **JSONL** into a **persistent ChromaDB** collection with **Qwen3-Embedding-8B** or **Gemini** embeddings |
 | [`topic-modelling/`](topic-modelling/) | **Cluster and summarize** Chroma-loaded documents: **UMAP** + **HDBSCAN**, **KeyBERT** (local Qwen), **Gemini** per-cluster summaries and a **Markdown** helicopter-view report |
 
@@ -71,21 +70,6 @@ Details, CLI / `__main__` defaults, and import examples: **[`vector-db-writer/RE
 Normative ingestion mapping: **[`vector-db-writer/docs/chroma_bank_feedback_ingestion.md`](vector-db-writer/docs/chroma_bank_feedback_ingestion.md)**.
 
 **Typical flow:** generate JSONL with `ai-data-generator` → copy or symlink into `vector-db-writer/data/bank_feedback/` → run `ingest_bank_feedback.py` → use the Chroma persist path as input to **topic-modelling**.
-
----
-
-## `predictive-model-agent/`
-
-**[`agent_tools.py`](predictive-model-agent/agent_tools.py)** — importable library for agents/MCP: splits (**train / valid / test / hoot / oot**), **PSI** (quantile, timely WoE, single-variable timely), target and score diagnostics (ROC-AUC, Gini, bootstrap champion–challenger), **logistic** tuning (`train_logreg_l1_tune_cv` / `train_logreg_l2_tune_cv`, `logreg_predict`), stepwise **feature selection**, and **optbinning**-backed binning/WoE/scorecard helpers.
-
-**[`scorecard/`](predictive-model-agent/scorecard/)** — orchestrated pipeline (ingest → EDA → splits → binning → feature search → scorecard → validation → documentation) with HITL gates; see [`predictive-model-agent/README.md`](predictive-model-agent/README.md) and [`docs/multi-agent-scorecard-design.md`](predictive-model-agent/docs/multi-agent-scorecard-design.md).
-
-| Piece | Role |
-|-------|------|
-| [`agent_tools.py`](predictive-model-agent/agent_tools.py) | Core modeling/monitoring functions |
-| [`run_scorecard.py`](predictive-model-agent/run_scorecard.py) | Launcher (same as `python -m scorecard.cli` with correct `PYTHONPATH`) |
-| [`requirements.txt`](predictive-model-agent/requirements.txt) | Pip dependencies for this folder |
-| [`notebook/testing_tools.ipynb`](predictive-model-agent/notebook/testing_tools.ipynb) | Examples on [`data/heloc_dataset_v1.parquet`](predictive-model-agent/data/heloc_dataset_v1.parquet) (and CSV) |
 
 ---
 
