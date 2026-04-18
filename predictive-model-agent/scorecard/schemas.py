@@ -268,5 +268,6 @@ class RunManifest(BaseModel):
     pdo_params: PdoParams
     constraint_spec: ConstraintSpec = Field(default_factory=ConstraintSpec)
     model_documentation: Optional[ModelDocumentationMeta] = None
+    production_code_path: Optional[str] = None
     champion_branch_id: Optional[str] = None
     approved: bool = False

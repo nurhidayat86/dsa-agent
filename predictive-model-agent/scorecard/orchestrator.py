@@ -177,6 +177,9 @@ def run_pipeline(
         ctx.pdo_params = new_pdo
         _phase_9_scorecard(ctx)
 
+    # ------------------- production code export (post-H5) --------------- #
+    _phase_9b_production_code(ctx)
+
     # ------------------------------ phase 10 ----------------------------- #
     _phase_10_validation(ctx)
 
@@ -1003,6 +1006,29 @@ def _resolve_h5_revision(
 
 
 # --------------------------------------------------------------------------- #
+# Phase 9b — production code export
+# --------------------------------------------------------------------------- #
+
+
+def _phase_9b_production_code(ctx: RunContext) -> None:
+    """Emit a standalone ``.py`` scorer for the approved champion.
+
+    Written once H5 is approved so the ``PdoParams`` and ``Scorecard`` are
+    final. The file is self-contained (only depends on ``numpy``) and is what
+    downstream services should deploy.
+    """
+
+    out_path = ctx.store.root / "production" / "scoring.py"
+    written = tools.export_production_code(ctx, out_path)
+    ctx.production_code_path = written
+    try:
+        rel = written.relative_to(ctx.store.root)
+    except ValueError:
+        rel = written
+    print(f"[phase 9b] production scorer written: {rel}")
+
+
+# --------------------------------------------------------------------------- #
 # Phase 10 — validation
 # --------------------------------------------------------------------------- #
 
@@ -1033,6 +1059,57 @@ REQUIRED_HEADINGS = [
 ]
 
 
+def _df_to_md_table(df: pd.DataFrame) -> str:
+    """Render ``df`` as a GitHub-flavored markdown pipe table.
+
+    Unlike ``DataFrame.to_markdown`` (which silently requires the optional
+    ``tabulate`` dependency and raises ``ImportError`` when it is missing) we
+    always produce a real markdown table:
+
+    * A non-default (i.e. labeled) index is promoted to a leading column so
+      the month / feature labels survive in the rendered output.
+    * A plain ``RangeIndex`` is dropped — the row numbers it contains add no
+      information and made the old output noisy.
+    * ``tabulate`` is used when available for nicer alignment; otherwise a
+      deterministic manual renderer emits the same structure. Either way the
+      caller gets markdown, never plain ``to_string`` whitespace output.
+    """
+
+    if df is None or len(df) == 0:
+        return "_(empty)_"
+
+    view = df.copy()
+    if isinstance(view.index, pd.RangeIndex):
+        view = view.reset_index(drop=True)
+    else:
+        view = view.reset_index()
+
+    try:
+        return view.to_markdown(index=False)
+    except Exception:  # noqa: BLE001 -- tabulate missing: fall back to manual
+        pass
+
+    def _cell(value: Any) -> str:
+        try:
+            if pd.isna(value):
+                return ""
+        except (TypeError, ValueError):  # unhashable / array-like scalar
+            pass
+        if isinstance(value, float):
+            return f"{value:g}"
+        text = str(value)
+        return text.replace("|", r"\|").replace("\n", " ").strip()
+
+    headers = [_cell(c) for c in view.columns]
+    lines = [
+        "| " + " | ".join(headers) + " |",
+        "| " + " | ".join("---" for _ in headers) + " |",
+    ]
+    for row in view.itertuples(index=False, name=None):
+        lines.append("| " + " | ".join(_cell(v) for v in row) + " |")
+    return "\n".join(lines)
+
+
 def _phase_12_model_docs(ctx: RunContext, settings: Settings) -> None:
     assert ctx.proposal is not None and ctx.data_contract is not None
     dc = ctx.data_contract
@@ -1044,14 +1121,16 @@ def _phase_12_model_docs(ctx: RunContext, settings: Settings) -> None:
     # discrimination over time) nor the binning table: otherwise the 20-row
     # head silently drops later months / features and the generated
     # documentation looks like it only covers a single period.
+    #
+    # Rendering is delegated to ``_df_to_md_table`` which always emits a
+    # GitHub-flavored markdown pipe table (even when the optional
+    # ``tabulate`` package is missing) so the documentation never degrades
+    # to space-padded ``to_string`` output.
     def _mdtable(df: pd.DataFrame, rows: int | None = None) -> str:
         if df is None or len(df) == 0:
             return "_(empty)_"
         view = df if rows is None else df.head(rows)
-        try:
-            return view.to_markdown(index=True)
-        except Exception:  # noqa: BLE001
-            return view.to_string()
+        return _df_to_md_table(view)
 
     eda_nan = _mdtable(_safe_parquet(ctx.store.path("eda/nan_overall.parquet")))
     target_timely = _mdtable(_safe_parquet(ctx.store.path("eda/target_timely.parquet")))
@@ -1206,6 +1285,21 @@ def _render_model_doc(
         f"pdo={ctx.pdo_params.pdo if ctx.pdo_params else 'n/a'}, "
         f"odds={ctx.pdo_params.odds if ctx.pdo_params else 'n/a'}"
     )
+    if ctx.production_code_path is not None:
+        try:
+            rel_code = ctx.production_code_path.relative_to(ctx.store.root)
+        except ValueError:
+            rel_code = ctx.production_code_path
+        production_code_line = (
+            f"**Production code:** standalone scorer written to "
+            f"`{rel_code}` (numpy-only; exposes ``get_score`` / ``get_woe`` over "
+            f"``dict[str, Any]`` payloads — drop this file into the serving "
+            f"service without the optbinning runtime)."
+        )
+    else:
+        production_code_line = (
+            "**Production code:** not yet generated for this run."
+        )
     return f"""# Model documentation
 
 {exec_summary}
@@ -1257,6 +1351,12 @@ derived via ``get_woe_from_bp``. Top entries of the binning table:
 
 ### Discrimination over time
 
+Monthly AUC / Gini are computed on **out-of-sample rows only** (``valid``,
+``test``, ``oot`` and ``hoot`` — ``train`` is excluded) so that in-window
+months are not inflated by fit-time performance. ``count`` /
+``count_positive`` in the table below are therefore the OOS row counts for
+each month, not the full population counts shown in §1's target-rate table.
+
 {score_timely}
 
 ## 6. Model stability
@@ -1301,6 +1401,8 @@ data=`{ctx.data_source}`.
 **Deployment notes:** input features map through the frozen ``BinningProcess``;
 score column name=`{ctx.data_contract.col_score if ctx.data_contract else 'score'}`.
 
+{production_code_line}
+
 **Limitations:** sample size is limited to the data window; OOT horizon is
 bounded by the ``SplitConfig``; known data defects are listed under
 problematic features.
@@ -1338,5 +1440,7 @@ def _phase_11_package(ctx: RunContext) -> RunManifest:
             path=str(ctx.model_documentation_path),
             champion_branch_id=manifest.champion_branch_id or "",
         )
+    if ctx.production_code_path is not None:
+        manifest.production_code_path = str(ctx.production_code_path)
     ctx.store.save_model("run_manifest.json", manifest)
     return manifest

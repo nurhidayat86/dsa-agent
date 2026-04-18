@@ -67,6 +67,7 @@ class RunContext:
 
     iteration: int = 0
     model_documentation_path: Optional[Path] = None
+    production_code_path: Optional[Path] = None
 
     def manifest(self) -> RunManifest:
         assert self.data_contract is not None

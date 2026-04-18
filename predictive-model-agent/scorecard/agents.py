@@ -49,8 +49,8 @@ from .settings import Settings
 class _SplitConfigOut(BaseModel):
     oot_th: Optional[str] = None
     hoot_th: Optional[str] = None
-    test_perc: float = Field(default=0.2, ge=0.05, le=0.5)
-    valid_perc: float = Field(default=0.2, ge=0.05, le=0.5)
+    test_perc: float = Field(default=0.25, ge=0.05, le=0.5)
+    valid_perc: float = Field(default=0.25, ge=0.05, le=0.5)
 
 
 class _ProblemContractOut(BaseModel):
@@ -190,10 +190,10 @@ Hard rules:
    thresholds. Otherwise set `oot_th` to null (no OOT).
 3. `oot_th` must be an ISO date (YYYY-MM-DD) at a month boundary taken from
    the provided monthly table; never invent dates outside the observed range.
-4. `test_perc` and `valid_perc` must each lie in [0.1, 0.3]. Their sum plus
-   the OOT fraction (rows on/after `oot_th`) must leave >= 40% for train.
-5. `hoot_th` stays null unless the user explicitly asks for a holdout-in-OOT
-   split.
+4. `oot` must always present in the split with minimum 2 months and maximum 4 months of data.
+5. `test_perc` and `valid_perc` must each lie in [0.1, 0.3]. Their sum plus
+   the OOT fraction (rows on/after `oot_th`) must leave >= 30% for train.
+6. `hoot_th` stays null unless the user explicitly asks for it in the user_request.
 
 Output ONLY a JSON object matching the SplitConfig schema; no prose, no
 markdown fences. Use numeric types, not strings, for the two percentages.

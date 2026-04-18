@@ -382,9 +382,9 @@ def get_timely_feature_psi_woe(
     Returns
     -------
     pd.DataFrame
-        Columns ``time``, ``feature_name``, ``psi``, and ``count data`` (number
-        of non-null numeric values of the feature in that production slice).
-        ``time`` holds ``col_period`` values.
+        **Wide** table: **index** = feature name (same strings as in ``cols_feats``,
+        in first-seen order), **columns** = time periods (``col_period`` values,
+        sorted), **values** = ``psi``.
 
     Raises
     ------
@@ -394,7 +394,7 @@ def get_timely_feature_psi_woe(
     if not cols_feats:
         raise ValueError("cols_feats must be a non-empty list of column names.")
 
-    feat_cols = list(cols_feats)
+    feat_cols = list(dict.fromkeys(cols_feats))
     _validate_columns(df_ref, "df_ref", feat_cols)
     _validate_columns(df_prod, "df_prod", feat_cols + [col_period])
 
@@ -409,19 +409,26 @@ def get_timely_feature_psi_woe(
                 df_slice[feat],
                 epsilon=epsilon,
             )
-            n_data = int(
-                pd.to_numeric(df_slice[feat], errors="coerce").notna().sum()
-            )
             rows.append(
                 {
                     "time": t,
                     "feature_name": feat,
                     "psi": psi_val,
-                    "count data": n_data,
                 }
             )
 
-    return pd.DataFrame(rows, columns=["time", "feature_name", "psi", "count data"])
+    long = pd.DataFrame(rows, columns=["time", "feature_name", "psi"])
+    if long.empty:
+        return pd.DataFrame(
+            index=pd.Index([], name="feature_name"),
+            columns=pd.Index(times, name=str(col_period)),
+        )
+
+    wide = long.pivot(index="feature_name", columns="time", values="psi")
+    wide = wide.reindex(index=feat_cols, columns=times)
+    wide.columns.name = str(col_period)
+    wide.index.name = "feature_name"
+    return wide
 
 
 def get_timely_psi(
@@ -573,6 +580,96 @@ def get_timely_binary_target_rate(
             count_positive=(col_target, "sum"),
         )
     )
+
+
+def plot_timely_binary_target_rate(
+    df: pd.DataFrame,
+    col_month: str,
+    col_target: str,
+    file_path: str | Path,
+    **savefig_kwargs: Any,
+) -> None:
+    """
+    Plot binary target rate over time with volume on a second y-axis.
+
+    Aggregates with :func:`get_timely_binary_target_rate` (same as
+    ``df_stats_target_mean_per_month``): per-period ``mean`` (target rate) and
+    ``count`` (non-null row count). The line uses the left axis; bars use the
+    right axis. The figure is saved to ``file_path``.
+
+    Parameters
+    ----------
+    df : pandas.DataFrame
+        Raw input containing ``col_month`` and ``col_target``.
+    col_month : str
+        Period column passed to :func:`get_timely_binary_target_rate` as
+        ``col_period`` (e.g. ``YYYYMM`` or cohort label).
+    col_target : str
+        Binary (or numeric) target column.
+    file_path : str or pathlib.Path
+        Output image path; parent directories are created if missing.
+    **savefig_kwargs
+        Forwarded to ``matplotlib.pyplot.savefig``.
+    """
+    try:
+        import matplotlib.pyplot as plt
+        from matplotlib.patches import Patch
+    except ImportError as exc:  # pragma: no cover - optional dependency
+        raise ImportError(
+            "plot_timely_binary_target_rate requires matplotlib. "
+            "Install with: pip install matplotlib"
+        ) from exc
+
+    stats = get_timely_binary_target_rate(df, col_month, col_target).sort_index()
+    if stats.empty:
+        raise ValueError(
+            "No rows to plot after grouping; check df and col_month/col_target."
+        )
+
+    out = _scorecard_plot_save_path(file_path)
+    x = np.arange(len(stats), dtype=float)
+    x_labels = [str(i) for i in stats.index]
+
+    fig, ax_rate = plt.subplots(figsize=(10, 4.5))
+    ax_count = ax_rate.twinx()
+
+    (line,) = ax_rate.plot(
+        x,
+        stats["mean"].to_numpy(dtype=float),
+        color="C0",
+        marker="o",
+        linewidth=2,
+        markersize=5,
+        label="Target rate (mean)",
+    )
+    bars = ax_count.bar(
+        x,
+        stats["count"].to_numpy(dtype=float),
+        width=0.55,
+        alpha=0.35,
+        color="C1",
+    )
+
+    ax_rate.set_xlabel(str(col_month))
+    ax_rate.set_ylabel("Target rate (mean)")
+    ax_count.set_ylabel("Count")
+    ax_rate.set_xticks(x)
+    ax_rate.set_xticklabels(x_labels, rotation=45, ha="right")
+    ax_rate.set_ylim(bottom=0)
+    ax_count.set_ylim(bottom=0)
+
+    fc = bars[0].get_facecolor()
+    count_patch = Patch(
+        facecolor=fc,
+        edgecolor=fc,
+        alpha=0.35,
+        label="Count",
+    )
+    ax_rate.legend(handles=[line, count_patch], loc="upper left", frameon=True)
+
+    fig.tight_layout()
+    fig.savefig(out, bbox_inches="tight", **savefig_kwargs)
+    plt.close(fig)
 
 
 def get_timely_target_rate_feature_segment(
@@ -3233,7 +3330,7 @@ def get_optimal_bin(
     cols_feat: list[str],
     col_target: str,
     min_nbin: int = 2,
-    max_nbin: int = 6,
+    max_nbin: int = 5,
     cols_feat_cat: list[str] | None = None,
 ) -> tuple[dict[str, Any], Any, pd.DataFrame, list[str]]:
     """
@@ -3735,6 +3832,425 @@ def get_binning_tables_from_bp(
     return out.loc[:, col_order], unrecognized
 
 
+def draw_binning_tables_from_bp(
+    bp: Any,
+    cols_feat: list[str],
+    image_folder: str | Path,
+) -> list[str]:
+    """
+    Save one PNG per feature with binning event-rate and WoE views.
+
+    Uses :func:`get_binning_tables_from_bp` (same rows as ``df_binning_tables``).
+    Each figure has two horizontal panels: (1) event rate line on the left axis
+    and count bars on the right; (2) WoE line on the left axis and count bars on
+    the right. X positions are bins (``Bin`` column labels). Files are named
+    ``{feature_name}_binning_table.png`` under ``image_folder``.
+
+    Parameters
+    ----------
+    bp
+        Fitted optbinning ``BinningProcess`` (or compatible with
+        ``get_binning_tables_from_bp``).
+    cols_feat : list of str
+        Features to plot (deduplicated; names not on ``bp`` are skipped).
+    image_folder : str or pathlib.Path
+        Directory to create if missing; PNGs are written here.
+
+    Returns
+    -------
+    list of str
+        Absolute paths of each PNG written (only for features with a non-empty
+        binning slice after dropping the optbinning ``Totals`` row).
+
+    Raises
+    ------
+    ImportError
+        If matplotlib is not installed.
+    ValueError
+        If no binning rows remain for a feature after filtering, or required
+        columns (``Bin``, ``Count``, ``Event rate``, ``WoE``) are missing.
+    """
+    try:
+        import matplotlib.pyplot as plt
+        from matplotlib.patches import Patch
+    except ImportError as exc:  # pragma: no cover - optional dependency
+        raise ImportError(
+            "draw_binning_tables_from_bp requires matplotlib. "
+            "Install with: pip install matplotlib"
+        ) from exc
+
+    df_all, _unrecognized = get_binning_tables_from_bp(bp, cols_feat)
+    if df_all.empty:
+        return []
+
+    root = Path(image_folder).expanduser().resolve()
+    root.mkdir(parents=True, exist_ok=True)
+
+    def _drop_totals(sub: pd.DataFrame) -> pd.DataFrame:
+        col_bin = "Bin" if "Bin" in sub.columns else None
+        if col_bin is None:
+            return sub
+        b = sub[col_bin].astype(str).str.strip().str.lower()
+        return sub.loc[~b.eq("totals") & ~b.eq("")].copy()
+
+    def _twin_line_bar(
+        ax_rate: Any,
+        x: np.ndarray,
+        x_labels: list[str],
+        y_line: np.ndarray,
+        y_count: np.ndarray,
+        y_left_label: str,
+        *,
+        nonnegative_line_ylim: bool = True,
+    ) -> None:
+        ax_count = ax_rate.twinx()
+        (line,) = ax_rate.plot(
+            x,
+            y_line,
+            color="C0",
+            marker="o",
+            linewidth=2,
+            markersize=4,
+            label=y_left_label,
+        )
+        bars = ax_count.bar(
+            x,
+            y_count,
+            width=0.55,
+            alpha=0.35,
+            color="C1",
+        )
+        ax_rate.set_xticks(x)
+        ax_rate.set_xticklabels(x_labels, rotation=45, ha="right")
+        ax_rate.set_ylabel(y_left_label)
+        ax_count.set_ylabel("Count")
+        if nonnegative_line_ylim:
+            ax_rate.set_ylim(bottom=0)
+        else:
+            lo = float(np.nanmin(y_line))
+            hi = float(np.nanmax(y_line))
+            if not np.isfinite(lo) or not np.isfinite(hi):
+                lo, hi = 0.0, 1.0
+            pad = max((hi - lo) * 0.08, 1e-6)
+            ax_rate.set_ylim(lo - pad, hi + pad)
+        ax_count.set_ylim(bottom=0)
+        fc = bars[0].get_facecolor()
+        count_patch = Patch(
+            facecolor=fc,
+            edgecolor=fc,
+            alpha=0.35,
+            label="Count",
+        )
+        ax_rate.legend(handles=[line, count_patch], loc="upper left", frameon=True)
+
+    written: list[str] = []
+    seen = list(dict.fromkeys(cols_feat))
+    feat_key = df_all["Feature Name"].astype(str)
+    for name in seen:
+        if not (feat_key == str(name)).any():
+            continue
+        sub = df_all.loc[df_all["Feature Name"].astype(str) == str(name)].copy()
+        sub = _drop_totals(sub)
+        if sub.empty:
+            continue
+        for col in ("Bin", "Count", "Event rate", "WoE"):
+            if col not in sub.columns:
+                raise ValueError(
+                    f"Binning table for {name!r} is missing required column {col!r}."
+                )
+
+        x_labels = [str(v) for v in sub["Bin"].tolist()]
+        x = np.arange(len(sub), dtype=float)
+        counts = pd.to_numeric(sub["Count"], errors="coerce").fillna(0.0).to_numpy()
+        event_rate = pd.to_numeric(sub["Event rate"], errors="coerce").to_numpy(
+            dtype=float
+        )
+        woe = pd.to_numeric(sub["WoE"], errors="coerce").to_numpy(dtype=float)
+
+        fig, (ax_er, ax_woe) = plt.subplots(
+            1,
+            2,
+            figsize=(14, 5),
+            constrained_layout=True,
+        )
+        fig.suptitle(str(name), fontsize=12)
+
+        _twin_line_bar(
+            ax_er, x, x_labels, event_rate, counts, "Event rate", nonnegative_line_ylim=True
+        )
+        ax_er.set_xlabel("Bin")
+        _twin_line_bar(
+            ax_woe, x, x_labels, woe, counts, "WoE", nonnegative_line_ylim=False
+        )
+        ax_woe.set_xlabel("Bin")
+
+        out_path = root / f"{name}_binning_table.png"
+        fig.savefig(str(out_path), bbox_inches="tight", dpi=120)
+        plt.close(fig)
+        written.append(str(out_path.resolve()))
+
+    return written
+
+
+def draw_timely_binning_tables_from_bp(
+    df: pd.DataFrame,
+    cols_feat_woe: list[str],
+    col_month: str,
+    bp: Any,
+    folder_figure: str | Path = "timely_binning_figures",
+    *,
+    col_target: str,
+) -> list[str]:
+    """
+    Per-feature PNGs of bin mix and target rate over a time column.
+
+    For each WoE column in ``cols_feat_woe``, resolves the raw feature name
+    (``<name>_woe`` → ``<name>``), assigns each row to an optbinning bin index
+    via ``bp.get_binned_variable`` when the raw column exists, otherwise by
+    nearest WoE match to the fitted binning table. Builds three horizontal panels:
+
+    1. Stacked bar of **counts** per bin over ``col_month``.
+    2. **100%** stacked bar of bin **shares** within each period.
+    3. **Mean target** (target rate) per bin over ``col_month`` (one line per bin).
+
+    Files are named ``timely_bin_{feature_name}.png`` under ``folder_figure``.
+    Legend entries are ``"{woe:g}: {Bin}"`` (WoE and bin label from the table).
+
+    Parameters
+    ----------
+    df : pandas.DataFrame
+        Must contain ``col_month``, ``col_target``, and each requested WoE column.
+        Raw feature columns (same name as on ``bp``) are optional but improve
+        bin assignment.
+    cols_feat_woe : list of str
+        WoE columns (typically ``*_woe``). Deduplicated; names not on ``bp`` are
+        skipped.
+    col_month : str
+        Time period column (month, day, cohort label, etc.).
+    bp
+        Fitted ``optbinning.BinningProcess`` aligned with the WoE columns.
+    folder_figure : str or pathlib.Path, default ``"timely_binning_figures"``
+        Output directory (created if missing).
+    col_target : str
+        **Keyword-only.** Target column; chart 3 plots ``mean`` within each
+        (``col_month``, bin).
+
+    Returns
+    -------
+    list of str
+        Absolute paths of PNGs written.
+
+    Raises
+    ------
+    ImportError
+        If matplotlib is not installed.
+    TypeError
+        If ``bp`` does not support ``get_binned_variable``.
+    """
+    try:
+        import matplotlib.pyplot as plt
+    except ImportError as exc:  # pragma: no cover - optional dependency
+        raise ImportError(
+            "draw_timely_binning_tables_from_bp requires matplotlib. "
+            "Install with: pip install matplotlib"
+        ) from exc
+
+    if not hasattr(bp, "get_binned_variable"):
+        raise TypeError(
+            "bp must expose get_binned_variable (e.g. a fitted optbinning "
+            "BinningProcess)."
+        )
+
+    cols_use = list(dict.fromkeys(cols_feat_woe))
+    need_cols = [col_month, col_target] + cols_use
+    _validate_columns(df, "df", need_cols)
+
+    bp_names = {str(v) for v in getattr(bp, "variable_names", ())}
+
+    root = Path(folder_figure).expanduser().resolve()
+    root.mkdir(parents=True, exist_ok=True)
+
+    def _drop_totals_rows(sub: pd.DataFrame) -> pd.DataFrame:
+        if "Bin" not in sub.columns:
+            return sub
+        b = sub["Bin"].astype(str).str.strip().str.lower()
+        return sub.loc[~b.eq("totals") & ~b.eq("")].copy()
+
+    def _raw_from_woe_col(woe_col: str) -> str:
+        if woe_col.endswith("_woe"):
+            return woe_col[: -len("_woe")]
+        return woe_col
+
+    def _df_raw_col(raw: str) -> str | None:
+        for c in df.columns:
+            if str(c) == str(raw):
+                return str(c)
+        return None
+
+    def _bin_meta_for_raw(feat_key: str) -> tuple[np.ndarray, list[str]]:
+        """``woes[i]`` / ``labels[i]`` align to bin index ``i`` (table sans Totals)."""
+        binned = bp.get_binned_variable(feat_key)
+        bt = getattr(binned, "binning_table", None)
+        if bt is None:
+            raise TypeError(f"No binning_table for feature {feat_key!r}.")
+        sub = bt.build()
+        if not isinstance(sub, pd.DataFrame):
+            sub = pd.DataFrame(sub)
+        sub = _drop_totals_rows(sub)
+        if sub.empty or "WoE" not in sub.columns or "Bin" not in sub.columns:
+            raise ValueError(
+                f"Binning table for {feat_key!r} is empty or missing WoE/Bin."
+            )
+        woes = pd.to_numeric(sub["WoE"], errors="coerce").to_numpy(dtype=float)
+        labels = [str(x) for x in sub["Bin"].tolist()]
+        return woes, labels
+
+    def _assign_bin_idx(
+        d: pd.DataFrame,
+        feat_key: str,
+        raw_col: str | None,
+        woe_col: str,
+        woes: np.ndarray,
+    ) -> pd.Series:
+        if raw_col is not None:
+            s = bp.get_binned_variable(feat_key).transform(
+                d[raw_col], metric="indices", check_input=False
+            )
+            return pd.Series(np.asarray(s, dtype=int), index=d.index)
+        w = pd.to_numeric(d[woe_col], errors="coerce").to_numpy(dtype=float)
+        dist = np.abs(w.reshape(-1, 1) - woes.reshape(1, -1))
+        idx = np.nanargmin(dist, axis=1).astype(int)
+        bad = np.isnan(w)
+        idx[bad] = -1
+        return pd.Series(idx, index=d.index)
+
+    written: list[str] = []
+    for woe_col in cols_use:
+        raw = _raw_from_woe_col(woe_col)
+        if str(raw) not in bp_names:
+            continue
+        feat_key = next(
+            (str(v) for v in bp.variable_names if str(v) == str(raw)), str(raw)
+        )
+        try:
+            woes, bin_labels = _bin_meta_for_raw(feat_key)
+        except (TypeError, ValueError, KeyError, AttributeError):
+            continue
+
+        n_bins = len(bin_labels)
+        if n_bins == 0:
+            continue
+
+        legend_labels = [
+            f"{float(woes[i]):.4g}: {bin_labels[i]}" for i in range(n_bins)
+        ]
+
+        raw_col = _df_raw_col(raw)
+        d = df.loc[:, [col_month, col_target, woe_col]].copy()
+        if raw_col is not None:
+            d[raw_col] = df[raw_col].values
+        d = d.dropna(subset=[col_month, col_target, woe_col])
+        if len(d) == 0:
+            continue
+
+        d["_bin"] = _assign_bin_idx(d, feat_key, raw_col, woe_col, woes)
+        d = d.loc[(d["_bin"] >= 0) & (d["_bin"] < n_bins)]
+        if len(d) == 0:
+            continue
+
+        counts = (
+            d.groupby([col_month, "_bin"], observed=False)
+            .size()
+            .unstack(fill_value=0)
+        )
+        counts.columns = pd.Index([int(c) for c in counts.columns])
+        counts = counts.sort_index().reindex(columns=list(range(n_bins)), fill_value=0)
+
+        rate = (
+            d.groupby([col_month, "_bin"], observed=False)[col_target]
+            .mean()
+            .unstack()
+        )
+        if len(rate.columns) > 0:
+            rate.columns = pd.Index([int(c) for c in rate.columns])
+        rate = rate.reindex(index=counts.index, columns=list(range(n_bins)))
+
+        pct = counts.div(counts.sum(axis=1).replace(0, np.nan), axis=0) * 100.0
+        pct = pct.fillna(0.0)
+
+        x = np.arange(len(counts), dtype=float)
+        x_lbl = [str(i) for i in counts.index]
+
+        fig, axes = plt.subplots(1, 3, figsize=(16, 4.5), constrained_layout=True)
+        fig.suptitle(str(raw), fontsize=12)
+
+        cmap = plt.get_cmap("tab20")
+        bottoms = np.zeros(len(counts))
+        for b in range(n_bins):
+            h = counts[b].to_numpy(dtype=float)
+            axes[0].bar(
+                x,
+                h,
+                bottom=bottoms,
+                width=0.65,
+                color=cmap(b % 20),
+                label=legend_labels[b],
+            )
+            bottoms += h
+        axes[0].set_xticks(x)
+        axes[0].set_xticklabels(x_lbl, rotation=45, ha="right")
+        axes[0].set_ylabel("Count")
+        axes[0].set_xlabel(str(col_month))
+        axes[0].set_title("Stacked counts by bin")
+        axes[0].legend(loc="upper left", fontsize=7, frameon=True)
+
+        bottoms2 = np.zeros(len(pct))
+        for b in range(n_bins):
+            h = pct[b].to_numpy(dtype=float)
+            axes[1].bar(
+                x,
+                h,
+                bottom=bottoms2,
+                width=0.65,
+                color=cmap(b % 20),
+                label=legend_labels[b],
+            )
+            bottoms2 += h
+        axes[1].set_xticks(x)
+        axes[1].set_xticklabels(x_lbl, rotation=45, ha="right")
+        axes[1].set_ylabel("Share (%)")
+        axes[1].set_xlabel(str(col_month))
+        axes[1].set_title("100% stacked (within period)")
+        axes[1].set_ylim(0, 100)
+        axes[1].legend(loc="upper left", fontsize=7, frameon=True)
+
+        for b in range(n_bins):
+            yv = rate[b].to_numpy(dtype=float)
+            axes[2].plot(
+                x,
+                yv,
+                marker="o",
+                linewidth=1.8,
+                markersize=4,
+                color=cmap(b % 20),
+                label=legend_labels[b],
+            )
+        axes[2].set_xticks(x)
+        axes[2].set_xticklabels(x_lbl, rotation=45, ha="right")
+        axes[2].set_ylabel(f"Mean({col_target})")
+        axes[2].set_xlabel(str(col_month))
+        axes[2].set_title("Target rate by bin")
+        axes[2].legend(loc="best", fontsize=7, frameon=True)
+        axes[2].grid(True, alpha=0.25)
+
+        out_path = root / f"timely_bin_{raw}.png"
+        fig.savefig(str(out_path), bbox_inches="tight", dpi=120)
+        plt.close(fig)
+        written.append(str(out_path.resolve()))
+
+    return written
+
+
 def get_woe_from_bp(
     df: pd.DataFrame,
     cols_feat: list[str],
@@ -3915,6 +4431,321 @@ def create_scorecard_model(
 
     scorecard_table = scorecard.table(style=table_style)
     return scorecard_table, scorecard
+
+
+def writre_production_code(bp: Any, scorecard: Any, code_path: str | Path) -> str:
+    """
+    Emit a standalone ``.py`` scorecard implementation (no optbinning runtime).
+
+    Uses the fitted ``BinningProcess`` and ``Scorecard`` (as in
+    :func:`create_scorecard_model`) to serialize bin boundaries, WoE, points,
+    and intercept. The generated module defines a small class with
+    ``get_score`` and ``get_woe`` operating on ``dict[str, Any]`` feature
+    payloads.
+
+    Parameters
+    ----------
+    bp
+        Fitted ``optbinning.BinningProcess`` (must cover every variable the
+        scorecard uses; typically identical to ``scorecard.binning_process_``).
+    scorecard
+        Fitted ``optbinning.scorecard.Scorecard``.
+    code_path
+        Output path for the generated Python file.
+
+    Returns
+    -------
+    str
+        Absolute path to the written file.
+
+    Notes
+    -----
+    Scoring follows optbinning's ``Scorecard.score`` implementation: sum of
+    per-variable points for the assigned bin index plus ``intercept_``.
+    Bin assignment matches ``metric="indices"`` with
+    ``metric_special="empirical"`` and ``metric_missing="empirical"``.
+
+    The emitted module imports ``numpy`` (for ``digitize`` and NaN checks) and
+    exposes module-level ``get_score`` / ``get_woe`` wrappers. Feature names are
+    always plain ``str`` literals so dict keys from JSON or Python match.
+    """
+    try:
+        from optbinning import Scorecard as OptScorecard
+        from optbinning.binning.binning_process import BinningProcess
+    except ImportError as exc:  # pragma: no cover - optional dependency
+        raise ImportError(
+            "writre_production_code requires the 'optbinning' package. "
+            "Install with: pip install optbinning"
+        ) from exc
+
+    if not isinstance(bp, BinningProcess):
+        raise TypeError("bp must be an optbinning.binning_process.BinningProcess instance.")
+    if not isinstance(scorecard, OptScorecard):
+        raise TypeError("scorecard must be an optbinning.scorecard.Scorecard instance.")
+    if not getattr(scorecard, "_is_fitted", False):
+        raise ValueError("scorecard must be fitted before exporting production code.")
+
+    bproc = scorecard.binning_process_
+    df_sc = getattr(scorecard, "_df_scorecard", None)
+    if df_sc is None:
+        df_sc = scorecard.table(style="detailed")
+
+    variables = list(bproc.get_support(names=True))
+    if not variables:
+        raise ValueError("Scorecard has no supported variables to export.")
+
+    variables_str = [str(v) for v in variables]
+
+    def _to_builtin_repr(obj: Any) -> str:
+        """JSON-safe-ish ``repr`` without ``np.str_`` / ``np.int64`` in source text."""
+
+        def _walk(o: Any) -> Any:
+            if isinstance(o, np.generic):
+                return o.item()
+            if isinstance(o, np.ndarray):
+                return o.tolist()
+            if isinstance(o, dict):
+                return {str(k): _walk(v) for k, v in o.items()}
+            if isinstance(o, (list, tuple)):
+                return [_walk(v) for v in o]
+            return o
+
+        return repr(_walk(obj))
+
+    for name in variables:
+        if name not in bp.variable_names:
+            raise ValueError(
+                f"Variable {name!r} is used by the scorecard but is not present "
+                "on the supplied BinningProcess."
+            )
+
+    intercept = float(scorecard.intercept_)
+    var_payload: list[str] = []
+
+    for name in variables:
+        optb = bproc.get_binned_variable(name)
+        dtype = getattr(optb, "dtype", "numerical")
+        special_codes = getattr(optb, "special_codes", None)
+
+        if special_codes is None:
+            n_special = 1
+        elif isinstance(special_codes, dict):
+            n_special = len(special_codes)
+        else:
+            n_special = 1
+
+        if dtype == "numerical":
+            raw_splits = getattr(optb, "splits", None)
+            if isinstance(raw_splits, np.ndarray):
+                splits_num = [float(x) for x in raw_splits.tolist()]
+            elif isinstance(raw_splits, (list, tuple)):
+                splits_num = [float(x) for x in raw_splits]
+            else:
+                splits_num = []
+            n_bins = len(splits_num) + 1 if splits_num else 1
+            cat_bins: list[list[Any]] = []
+        elif dtype == "categorical":
+            splits_num = []
+            ser = _serialize_optbinning_splits(optb)
+            if not isinstance(ser, list):
+                raise TypeError(f"Unexpected categorical splits for {name!r}.")
+            cat_bins = [list(b) for b in ser]
+            n_bins = len(cat_bins)
+        else:
+            raise TypeError(f"Unsupported dtype {dtype!r} for variable {name!r}.")
+
+        name_str = str(name)
+        sub = df_sc.loc[df_sc["Variable"].astype(str) == name_str].sort_values("Bin id")
+        if len(sub) != n_bins + n_special + 1:
+            raise ValueError(
+                f"Scorecard table row count mismatch for {name!r}: "
+                f"expected {n_bins + n_special + 1}, got {len(sub)}."
+            )
+
+        points = [float(x) for x in sub["Points"].tolist()]
+        woes = [float(x) for x in sub["WoE"].tolist()]
+
+        idx_missing = n_bins + n_special
+        idx_special_single: int | None
+        idx_special_map: dict[str, int]
+        if special_codes is None:
+            idx_special_single = None
+            idx_special_map = {}
+        elif isinstance(special_codes, dict):
+            idx_special_single = None
+            idx_special_map = {
+                str(k): n_bins + i for i, k in enumerate(special_codes.keys())
+            }
+        else:
+            idx_special_single = n_bins
+            idx_special_map = {}
+
+        special_literal = _to_builtin_repr(special_codes)
+
+        splits_literal = _to_builtin_repr(splits_num)
+        cat_literal = _to_builtin_repr(cat_bins)
+        points_literal = _to_builtin_repr(points)
+        woes_literal = _to_builtin_repr(woes)
+
+        var_payload.append(
+            f"    {name_str!r}: {{\n"
+            f"        'dtype': {dtype!r},\n"
+            f"        'numerical_splits': {splits_literal},\n"
+            f"        'categorical_bins': {cat_literal},\n"
+            f"        'special_codes': {special_literal},\n"
+            f"        'n_bins': {n_bins},\n"
+            f"        'n_special': {n_special},\n"
+            f"        'idx_missing': {idx_missing},\n"
+            f"        'idx_special_single': {repr(idx_special_single)},\n"
+            f"        'idx_special_map': {repr(idx_special_map)},\n"
+            f"        'points': {points_literal},\n"
+            f"        'woe': {woes_literal},\n"
+            f"    }},"
+        )
+
+    vars_block = "\n".join(var_payload)
+    out_path = Path(code_path).expanduser().resolve()
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+
+    py_src = f'''\
+"""
+Auto-generated standalone scorecard (no optbinning dependency).
+
+Requires ``numpy``. Generated by predictive-model-agent ``writre_production_code``.
+"""
+
+from __future__ import annotations
+
+from math import isnan
+from typing import Any, Mapping
+
+import numpy as np
+
+
+_INTERCEPT = {intercept!r}
+_VARIABLE_ORDER = {variables_str!r}
+_VARS = {{
+{vars_block}
+}}
+
+
+def _is_missing(value: Any) -> bool:
+    if value is None:
+        return True
+    if isinstance(value, float) and isnan(value):
+        return True
+    if isinstance(value, np.generic) and np.issubdtype(value.dtype, np.floating):
+        return bool(np.isnan(value))
+    return False
+
+
+def _digitize_right_false(x: float, splits: list[float]) -> int:
+    """Same bin index as ``numpy.digitize(x, splits, right=False)`` (optbinning)."""
+    if not splits:
+        return 0
+    return int(np.digitize(np.float64(x), np.asarray(splits, dtype=np.float64), right=False))
+
+
+def _special_bin_index(value: Any, cfg: dict[str, Any]) -> int | None:
+    sc = cfg["special_codes"]
+    if sc is None:
+        return None
+    if isinstance(sc, dict):
+        for key, codes in sc.items():
+            seq = codes if isinstance(codes, (list, tuple)) else [codes]
+            for code in seq:
+                if value == code:
+                    return cfg["idx_special_map"][str(key)]
+                if (
+                    isinstance(value, float)
+                    and isinstance(code, float)
+                    and isnan(value)
+                    and isnan(code)
+                ):
+                    return cfg["idx_special_map"][str(key)]
+        return None
+    seq = sc if isinstance(sc, (list, tuple)) else [sc]
+    for code in seq:
+        if value == code:
+            return cfg["idx_special_single"]
+        if (
+            isinstance(value, float)
+            and isinstance(code, float)
+            and isnan(value)
+            and isnan(code)
+        ):
+            return cfg["idx_special_single"]
+    return None
+
+
+def _bin_index(name: str, value: Any) -> int:
+    cfg = _VARS[name]
+    if _is_missing(value):
+        return cfg["idx_missing"]
+    sp_idx = _special_bin_index(value, cfg)
+    if sp_idx is not None:
+        return sp_idx
+
+    if cfg["dtype"] == "numerical":
+        x = float(value)
+        return _digitize_right_false(x, cfg["numerical_splits"])
+
+    for i, cats in enumerate(cfg["categorical_bins"]):
+        if value in cats:
+            return i
+        sval = str(value)
+        for c in cats:
+            if sval == str(c):
+                return i
+    return -1
+
+
+class StandaloneScorecard:
+    """Pure-Python PDO scorecard mirroring a fitted optbinning ``Scorecard``."""
+
+    def __init__(self) -> None:
+        """Stateless wrapper; all rules live in module-level ``_VARS``."""
+        pass
+
+    def get_score(self, dict_features: Mapping[str, Any]) -> dict[str, float]:
+        total = _INTERCEPT
+        for name in _VARIABLE_ORDER:
+            idx = _bin_index(name, dict_features.get(name))
+            pts = _VARS[name]["points"]
+            if idx < 0:
+                pick = pts[-1]
+            else:
+                pick = pts[idx]
+            total += pick
+        return {{"score": float(total)}}
+
+    def get_woe(self, dict_features: Mapping[str, Any]) -> dict[str, float]:
+        out: dict[str, float] = {{}}
+        for name in _VARIABLE_ORDER:
+            idx = _bin_index(name, dict_features.get(name))
+            w = _VARS[name]["woe"]
+            if idx < 0:
+                out[name] = float(w[-1])
+            else:
+                out[name] = float(w[idx])
+        return out
+
+
+_DEFAULT_MODEL = StandaloneScorecard()
+
+
+def get_score(dict_features: Mapping[str, Any]) -> dict[str, float]:
+    """Module-level score using the embedded scorecard rules."""
+    return _DEFAULT_MODEL.get_score(dict_features)
+
+
+def get_woe(dict_features: Mapping[str, Any]) -> dict[str, float]:
+    """Module-level WoE using the embedded scorecard rules."""
+    return _DEFAULT_MODEL.get_woe(dict_features)
+'''
+
+    out_path.write_text(py_src, encoding="utf-8")
+    return str(out_path)
 
 
 def _scorecard_plot_y_y_pred(
@@ -5019,6 +5850,7 @@ __all__ = [
     "get_timely_feature_psi_woe",
     "get_timely_psi",
     "get_timely_binary_target_rate",
+    "plot_timely_binary_target_rate",
     "get_timely_target_rate_feature_segment",
     "get_nan_rate",
     "get_nan_rate_timely",
@@ -5043,6 +5875,8 @@ __all__ = [
     "get_optimal_bin",
     "modify_optimal_bin",
     "get_binning_tables_from_bp",
+    "draw_binning_tables_from_bp",
+    "draw_timely_binning_tables_from_bp",
     "get_woe_from_bp",
     "split_data",
     "get_virtual_date",

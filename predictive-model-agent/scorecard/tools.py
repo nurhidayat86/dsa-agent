@@ -531,6 +531,38 @@ def build_scorecard(
 
 
 # --------------------------------------------------------------------------- #
+# Production code export (runs after H5 approval, before validation)
+# --------------------------------------------------------------------------- #
+
+
+def export_production_code(ctx: RunContext, code_path: str | Path) -> Path:
+    """Write a standalone ``.py`` scorer for the approved champion model.
+
+    Thin wrapper around :func:`agent_tools.writre_production_code`. The
+    generated module depends only on ``numpy``: it embeds the champion's bin
+    definitions, WoE values, per-bin points and intercept, and exposes
+    ``get_score`` / ``get_woe`` functions that accept ``dict[str, Any]``
+    feature payloads — exactly the shape a downstream service would feed.
+    """
+
+    assert ctx.scorecard_model is not None, (
+        "export_production_code called before the scorecard is fit; "
+        "build_scorecard must run first."
+    )
+    bp = getattr(ctx.scorecard_model, "binning_process_", None)
+    if bp is None:
+        raise RuntimeError(
+            "scorecard_model.binning_process_ is not available — did "
+            "Scorecard.fit run successfully?"
+        )
+    p = Path(code_path)
+    p.parent.mkdir(parents=True, exist_ok=True)
+    # ``writre_production_code`` returns the absolute path as a ``str``.
+    written = at.writre_production_code(bp, ctx.scorecard_model, str(p))
+    return Path(written)
+
+
+# --------------------------------------------------------------------------- #
 # Phase 10 — validation
 # --------------------------------------------------------------------------- #
 
@@ -545,8 +577,16 @@ def run_validation(ctx: RunContext) -> dict[str, pd.DataFrame]:
         out["score_by_type"] = at.get_score_predictive_power_data_type(
             ctx.df_work, col_score=dc.col_score, col_type=dc.col_type, col_target=dc.col_target
         )
+        # Discrimination-over-time is a monitoring signal, so it must stay
+        # out-of-sample. Pooling ``train`` rows back in makes the in-window
+        # months look optimistically good (the scorecard was fit on them)
+        # and muddies the comparison against the OOT / HOOT months.
+        df_scored_oos = ctx.df_work[ctx.df_work[dc.col_type] != "train"]
         out["score_timely"] = at.get_score_predictive_power_timely(
-            ctx.df_work, col_score=dc.col_score, col_period=dc.col_month, col_target=dc.col_target
+            df_scored_oos,
+            col_score=dc.col_score,
+            col_period=dc.col_month,
+            col_target=dc.col_target,
         )
     # PSI of score (train as reference) across months.
     if dc.col_score in ctx.df_work.columns:
@@ -564,9 +604,6 @@ def run_validation(ctx: RunContext) -> dict[str, pd.DataFrame]:
             feat_psi = at.get_timely_feature_psi_woe(
                 df_ref, ctx.df_work, cols_feats=ctx.cols_feat_woe, col_period=dc.col_month
             )
-            sort_cols = [c for c in ("feature_name", "time") if c in feat_psi.columns]
-            if sort_cols:
-                feat_psi = feat_psi.sort_values(sort_cols).reset_index(drop=True)
             out["feature_woe_psi_timely"] = feat_psi
         except Exception as e:  # noqa: BLE001
             out["feature_woe_psi_timely"] = pd.DataFrame({"error": [str(e)]})
