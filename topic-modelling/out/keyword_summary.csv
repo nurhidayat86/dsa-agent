@@ -1,161 +1,121 @@
-cluster,keywords,cosine_similarities
--1,debit card recently,0.7465
--1,requested replacement debit,0.7142
--1,card recently,0.7111
--1,question recent debit,0.7007
--1,contacting report debit,0.6969
--1,debit card weeks,0.69
--1,card enjoyed bank,0.689
--1,missing points transaction,0.6866
--1,card recently requested,0.6826
--1,replacement debit,0.6823
--1,day lost debit,0.6792
--1,debit card damaged,0.6745
--1,card damaged recent,0.6683
--1,dispute missing points,0.6648
--1,card rely,0.6647
--1,replacement debit card,0.6624
--1,lost debit,0.6615
--1,card department massive,0.66
--1,card request sent,0.6589
--1,card soon thank,0.653
-0,bali 003 branch,0.687
-0,branch today satisfied,0.6783
-0,service received teller,0.6783
-0,branch today positive,0.677
-0,service teller extremely,0.6631
-0,questions appreciate bank,0.6604
-0,today visited branch,0.6572
-0,banking experience pleasant,0.6569
-0,branch counter staff,0.6548
-0,branch advice,0.6536
-0,efficiency service teller,0.6535
-0,experience branch counter,0.6527
-0,inquiry visited branch,0.6517
-0,branch today service,0.6486
-0,bank overall consultation,0.6421
-0,appreciate bank,0.6419
-0,confident bank services,0.6417
-0,branch welcoming,0.6409
-0,service teller,0.6387
-0,interactions loan department,0.637
-1,transfers trouble portal,0.6913
-1,log internet banking,0.6741
-1,logging internet banking,0.6653
-1,problem accessing accounts,0.6625
-1,banking portal today,0.6618
-1,internet banking portal,0.6554
-1,using internet banking,0.6472
-1,accounts quite frustrating,0.6458
-1,trouble logging mobile,0.6444
-1,using digital banking,0.6433
-1,banking portal,0.6405
-1,internet banking,0.6326
-1,bank regarding outages,0.6216
-1,bug affecting transfers,0.6206
-1,transfers trouble,0.6204
-1,mobile banking main,0.6179
-1,lack communication bank,0.617
-1,app daily banking,0.6113
-1,banking portal home,0.61
-1,mobile banking,0.6078
-2,loan rate communicated,0.6655
-2,inquire current mortgage,0.6638
-2,mortgage products prompt,0.6449
-2,personal loan rate,0.6427
-2,mortgage inquiries reach,0.6427
-2,level mortgage inquiries,0.6418
-2,branch inquire current,0.6387
-2,personal loan submitted,0.6374
-2,loan need understand,0.6364
-2,mortgage specialist contact,0.6353
-2,loan application process,0.6339
-2,inquiries makes bank,0.6299
-2,bank offer faster,0.6287
-2,loan rate,0.6283
-2,regarding status mortgage,0.625
-2,loan submitted required,0.6241
-2,manager explain rate,0.6225
-2,mortgage rates staff,0.6217
-2,process personal loan,0.6213
-2,submitted personal loan,0.6207
-3,unauthorized transactions appeared,0.725
-3,unauthorized transactions statement,0.7229
-3,unauthorized transaction appeared,0.7212
-3,unauthorized transactions advise,0.717
-3,regarding unauthorized transaction,0.7083
-3,noticed unauthorized transactions,0.6848
-3,unauthorized transaction,0.6834
-3,unauthorized transactions,0.6722
-3,series unauthorized transactions,0.6713
-3,detailing unauthorized transactions,0.6677
-3,card details compromised,0.6443
-3,unauthorized transactions copy,0.6431
-3,today noticed unauthorized,0.643
-3,statement suspicious transaction,0.6339
-3,card suspicious,0.6298
-3,complaint regarding unauthorized,0.6276
-3,account fraudulent charges,0.6217
-3,unauthorized charge issue,0.6214
-3,used card suspicious,0.6133
-3,prevent unauthorized transactions,0.6077
-4,unexpected fees causing,0.6917
-4,unexpected fees,0.6864
-4,unauthorized fee charged,0.6784
-4,fee charged account,0.6765
-4,charged overdraft fee,0.6712
-4,institution unexpected fees,0.6685
-4,overdraft fee,0.6676
-4,regarding unauthorized fee,0.6663
-4,card transaction incorrectly,0.6659
-4,unauthorized fee,0.6556
-4,fee year disappointed,0.6543
-4,account maintenance fees,0.6534
-4,unexpected charges,0.6446
-4,overdraft fee morning,0.6402
-4,regarding fee issue,0.637
-4,charged overdraft,0.6305
-4,unexpected charges like,0.6254
-4,reversal fee written,0.6208
-4,transaction incorrectly flagged,0.62
-4,fees applied checking,0.6194
-5,branch experience tablet,0.7389
-5,tablet branch difficult,0.7033
-5,branch tablet today,0.7031
-5,concerns tablet branch,0.6938
-5,used branch tablet,0.6876
-5,tablet used branch,0.6808
-5,having issues tablet,0.6766
-5,branch tablet,0.6725
-5,improvements branch tablet,0.6721
-5,cleanliness branch tablet,0.6695
-5,self service tablet,0.6677
-5,tablet wait representative,0.6642
-5,branch tablet stations,0.6626
-5,tablet branch slow,0.6609
-5,issues tablet lately,0.6591
-5,branch tablet valuable,0.6582
-5,branch today noticed,0.6575
-5,experience tablet lobby,0.6566
-5,tablet lobby unresponsive,0.6553
-5,branch experience,0.6541
-6,rude behavior teller,0.6013
-6,account teller dismissive,0.5818
-6,branch understaffed poorly,0.5813
-6,dispute visit branch,0.5704
-6,branch understaffed,0.5701
-6,unprofessional behavior staff,0.5657
-6,behavior staff asked,0.5628
-6,branch wait time,0.5601
-6,complaining service received,0.5528
-6,approached teller counter,0.5497
-6,declined teller dismissive,0.5463
-6,insulted service provided,0.5461
-6,review staff behavior,0.546
-6,dissatisfaction service received,0.5446
-6,dissatisfied service received,0.5441
-6,request times staff,0.5426
-6,bank felt belittled,0.5402
-6,formally complaining service,0.5382
-6,hear branch manager,0.5382
-6,banking relationship disappointing,0.5367
+cluster,keywords,cosine_similarities,weight
+-1,rewards points noticed,0.6764,0.05325061800318055
+-1,confused rewards points,0.6763,0.05324274535119901
+-1,card rewards program,0.6668,0.05249484341295208
+-1,credit card rewards,0.6616,0.052085465509911666
+-1,rewards points,0.6433,0.050644770197288656
+-1,appreciate bank rewards,0.6359,0.05006219395065422
+-1,rewards points calculated,0.6355,0.05003070334272803
+-1,dispute missing points,0.6327,0.049810269087244737
+-1,card rewards,0.6317,0.04973154256742927
+-1,regarding rewards,0.6304,0.04962919809166916
+-1,missing points transaction,0.6303,0.049621325439687614
+-1,rewards program feel,0.6276,0.049408763836185865
+-1,bank rewards program,0.6268,0.04934578262033349
+-1,rewards program using,0.6254,0.04923556549259183
+-1,card primarily rewards,0.6216,0.048936404717293075
+-1,rewards program,0.6196,0.04877895167766214
+-1,points accumulation redemption,0.6165,0.0485348994662342
+-1,cardholder years points,0.6156,0.048464045598400285
+-1,dissatisfied way rewards,0.6154,0.04844830029443718
+-1,points credited account,0.6128,0.04824361134291698
+0,bali 003 branch,0.687,0.052381170227366304
+0,branch today satisfied,0.6783,0.05171782789697607
+0,service received teller,0.6783,0.05171782789697607
+0,branch today positive,0.677,0.0516187077786419
+0,service teller extremely,0.6631,0.05055888497491498
+0,questions appreciate bank,0.6604,0.05035302011375939
+0,today visited branch,0.6572,0.05010903213016758
+0,banking experience pleasant,0.6569,0.05008615825670586
+0,branch counter staff,0.6548,0.04992604114247373
+0,branch advice,0.6536,0.0498345456486268
+0,efficiency service teller,0.6535,0.049826921024139555
+0,experience branch counter,0.6527,0.0497659240282416
+0,inquiry visited branch,0.6517,0.04968967778336916
+0,branch today service,0.6486,0.0494533144242646
+0,bank overall consultation,0.6421,0.048957713832593744
+0,appreciate bank,0.6419,0.048942464583619255
+0,confident bank services,0.6417,0.048927215334644766
+0,branch welcoming,0.6409,0.04886621833874681
+0,service teller,0.6387,0.04869847660002745
+0,interactions loan department,0.637,0.048568857983744294
+1,transfers trouble portal,0.6913,0.05404665853582263
+1,log internet banking,0.6741,0.05270194202082747
+1,logging internet banking,0.6653,0.052013947524783444
+1,problem accessing accounts,0.6625,0.05179504018513307
+1,banking portal today,0.6618,0.05174031335022048
+1,internet banking portal,0.6554,0.051239953716733906
+1,using internet banking,0.6472,0.05059886793632924
+1,accounts quite frustrating,0.6458,0.05048941426650406
+1,trouble logging mobile,0.6444,0.05037996059667887
+1,using digital banking,0.6433,0.05029396128467336
+1,banking portal,0.6405,0.050075053945022985
+1,internet banking,0.6326,0.04945742252243801
+1,bank regarding outages,0.6216,0.04859742940238297
+1,bug affecting transfers,0.6206,0.048519248209650694
+1,transfers trouble,0.6204,0.048503611971104234
+1,mobile banking main,0.6179,0.04830815898927354
+1,lack communication bank,0.617,0.048237795915814494
+1,app daily banking,0.6113,0.047792163117240515
+1,banking portal home,0.61,0.04769052756668856
+1,mobile banking,0.6078,0.04751852894267755
+2,unexpected fees causing,0.6917,0.05290774608565288
+2,unexpected fees,0.6864,0.05250235205029946
+2,unauthorized fee charged,0.6784,0.0518904365252377
+2,fee charged account,0.6765,0.05174510658803553
+2,charged overdraft fee,0.6712,0.05133971255268211
+2,institution unexpected fees,0.6685,0.05113319106297376
+2,overdraft fee,0.6676,0.051064350566404314
+2,regarding unauthorized fee,0.6663,0.05096491429358178
+2,card transaction incorrectly,0.6659,0.05093431851732869
+2,unauthorized fee,0.6556,0.05014647727881166
+2,fee year disappointed,0.6543,0.050047041005989126
+2,account maintenance fees,0.6534,0.04997820050941968
+2,unexpected charges,0.6446,0.049305093431851736
+2,overdraft fee morning,0.6402,0.048968539893067764
+2,regarding fee issue,0.637,0.048723773683043065
+2,charged overdraft,0.6305,0.048226592318930374
+2,unexpected charges like,0.6254,0.0478364961717035
+2,reversal fee written,0.6208,0.04748464474479299
+2,transaction incorrectly flagged,0.62,0.04742345319228681
+2,fees applied checking,0.6194,0.047377559527907176
+3,unauthorized transactions appeared,0.725,0.0546773658330568
+3,unauthorized transactions statement,0.7229,0.05451899001478174
+3,unauthorized transaction appeared,0.7212,0.05439078101903526
+3,unauthorized transactions advise,0.717,0.054074029382485136
+3,regarding unauthorized transaction,0.7083,0.053417900992488464
+3,noticed unauthorized transactions,0.6848,0.0516456001689342
+3,unauthorized transaction,0.6834,0.051540016290084166
+3,unauthorized transactions,0.6722,0.05069534525928384
+3,series unauthorized transactions,0.6713,0.05062746990859453
+3,detailing unauthorized transactions,0.6677,0.050355968505837276
+3,card details compromised,0.6443,0.04859120938791517
+3,unauthorized transactions copy,0.6431,0.04850070892032942
+3,today noticed unauthorized,0.643,0.04849316721469728
+3,statement suspicious transaction,0.6339,0.04780687200217201
+3,card suspicious,0.6298,0.04749766207125403
+3,complaint regarding unauthorized,0.6276,0.04733174454734683
+3,account fraudulent charges,0.6217,0.046886783915050224
+3,unauthorized charge issue,0.6214,0.04686415879815378
+3,used card suspicious,0.6133,0.04625328064194998
+3,prevent unauthorized transactions,0.6077,0.04583094512654982
+4,loan rate communicated,0.5885,0.05153916889258659
+4,branch today unable,0.5863,0.05134649910233394
+4,account worrying,0.5835,0.05110128300564873
+4,003 branch inquire,0.5781,0.05062836624775583
+4,bank offer faster,0.5777,0.0505933353768008
+4,branch inquire current,0.5751,0.05036563471559311
+4,bali 003 branch,0.5737,0.050243026667250515
+4,inquiries makes bank,0.5736,0.05023426894951176
+4,notice rate adjustment,0.5732,0.05019923807855673
+4,new minimum balance,0.5723,0.05012041861890792
+4,explain rate changes,0.5694,0.049866444804483955
+4,mortgage application told,0.5681,0.04975259447388011
+4,manager explain rate,0.5665,0.04961247099005999
+4,account worrying like,0.5653,0.049507378377194905
+4,bank feel,0.5642,0.049411043482068574
+4,changes personal loan,0.564,0.049393528046591056
+4,inquire current mortgage,0.5635,0.04934973945789727
+4,requested replacement debit,0.5627,0.049279677715987215
+4,balance requirements apply,0.5576,0.04883303411131059
+4,branch inquire,0.5552,0.04862284888558042
