@@ -22,9 +22,9 @@ The Markdown report path is whatever you pass as `md_file_path` (for example `./
 
 ## Prerequisites
 
-- **Python** with the same stack as `vector-db-writer` / notebooks: `chromadb`, `pandas`, `numpy`, `umap-learn`, `hdbscan`, `scikit-learn`, `torch`, `transformers`, `keybert`, `google-genai`, `pyyaml`, and a local **Qwen3-Embedding-8B** snapshot compatible with the ingest model (see `vector-db-writer`).
-- **Gemini API key** for summaries and the final report: nearest parent `config.yaml` with a `gemini:` block (this folder’s [`config.yaml`](config.yaml) is typical), or `GEMINI_API_KEY`. Prefer not committing real keys; copy from `config-example` patterns used elsewhere in the repo.
-- **Process working directory** under the **dsa-agent** repo when relying on default relative paths (for example `../vector-db-writer/...`), so Qwen and Chroma paths resolve predictably.
+- **Python** with the same stack as [`vector-db-writer`](../vector-db-writer): `chromadb`, `pandas`, `numpy`, `umap-learn`, `hdbscan`, `scikit-learn`, `torch`, `transformers`, `keybert`, `google-genai`, `pyyaml`, plus a local **Qwen3-Embedding-8B** snapshot that matches the embedding model used at ingest time. Installing [`vector-db-writer/requirements.txt`](../vector-db-writer/requirements.txt) in the **`google-adk`** conda env is the usual approach for this repo.
+- **Gemini API key** for summaries and the final report: a parent `config.yaml` with a `gemini:` block (often this folder’s [`config.yaml`](config.yaml)), or `GEMINI_API_KEY` / `GOOGLE_API_KEY`. Do not commit real keys.
+- **Working directory** at or under the **dsa-agent** repo when using default relative paths (for example `../vector-db-writer/...`) so Chroma and Qwen paths resolve.
 
 ---
 

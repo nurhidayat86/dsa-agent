@@ -30,9 +30,9 @@ If the global word band is too narrow to assign separate windows safely, every r
 
 ## Requirements
 
-- **Conda env:** `google-adk` (same as the rest of `ai-data-generator`).
-- **Dependencies:** `pyyaml`, `google-genai` (see [`../requirements.txt`](../requirements.txt)).
-- **Config:** [`../config.yaml`](../config.yaml) (gitignored locally; copy from [`../config-example.yaml`](../config-example.yaml)). Prefer **`GEMINI_API_KEY`** in the environment.
+- **Conda env:** `google-adk` (same as the rest of this repo).
+- **Dependencies:** install parent [`../requirements.txt`](../requirements.txt) (includes `pyyaml`, `google-genai`).
+- **Config:** [`../config.yaml`](../config.yaml) (local; copy from [`../config-example.yaml`](../config-example.yaml)). Prefer **`GEMINI_API_KEY`** in the environment.
 
 ---
 
@@ -59,7 +59,7 @@ Add the folder that **contains** `call_center_data` (i.e. **`ai-data-generator`*
 import sys
 from pathlib import Path
 
-ADA = Path(r"f:/datascience/dsa-agent/ai-data-generator")  # adjust
+ADA = Path("/path/to/dsa-agent/ai-data-generator")  # adjust
 sys.path.insert(0, str(ADA))
 
 from call_center_data import generate_call_center_data

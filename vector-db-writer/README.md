@@ -2,7 +2,7 @@
 
 ## Environment
 
-Use the **`google-adk`** Conda environment (same as `ai-data-generator`).
+Use the **`google-adk`** conda environment (same as `ai-data-generator`, `predictive-model-agent`, and `topic-modelling`).
 
 ```bash
 conda activate google-adk

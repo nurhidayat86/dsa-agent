@@ -82,4 +82,7 @@ Thumbs.db
 .vscode/
 *.code-workspace
 .cursor/
+
+# -- Others --
 predictive-model-agent/data/
+predictive-model-agent/scorecard_runs/

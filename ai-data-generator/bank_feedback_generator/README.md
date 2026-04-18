@@ -1,54 +1,47 @@
 # Bank feedback generator
 
-`generator.py` implements synthetic **bank complaint / feedback** records (raw-layer JSON) using the Google Gemini API. You can **import** `generate_bank_feedback_data` or `run_bank_feedback_generation` from another project, or run the module after editing the arguments in the `if __name__ == "__main__"` block:
-
-```bash
-cd bank_feedback_generator
-conda run -n google-adk python generator.py
-```
+`generator.py` creates synthetic **bank complaint / feedback** records (raw-layer JSON) with the Google Gemini API. Use **`run_bank_feedback_generation`** from a script, **`generate_bank_feedback_data`** as a library, or run the file after editing `if __name__ == "__main__"`.
 
 ## Prerequisites
 
 - **Python** 3.10+
-- **Conda environment** `google-adk` (or another env with `google-genai` and `pyyaml`; see parent folder `requirements.txt`).
-- **API key**: set `GEMINI_API_KEY` in your environment (see `../config.yaml` or `../config-example.yaml` under `gemini.api_key_env`).
+- **Conda environment** `google-adk` (or any env with `google-genai` and `pyyaml`; see parent [`requirements.txt`](../requirements.txt)).
+- **API key:** `GEMINI_API_KEY` in the environment (see `../config.yaml` or `../config-example.yaml` under `gemini.api_key_env`).
 
 ## Configuration
 
-1. From the **`ai-data-generator`** directory (parent of this folder), ensure `config.yaml` exists. If you only have the example file, copy it:
-
-   ```bash
-   copy config-example.yaml config.yaml
-   ```
-
-   (On Unix: `cp config-example.yaml config.yaml`.)
-
-2. Put your Gemini key in the environment (recommended), or set `gemini.api_key` in `config.yaml` for local use only.
-
-## How to run / use `generator.py`
-
-### Option C: Run as a script (edit `__main__` call first)
-
-Open `generator.py`, adjust the arguments passed to `run_bank_feedback_generation(...)` at the bottom, then:
+From the **`ai-data-generator`** directory (parent of this folder), ensure `config.yaml` exists. If you only have the example:
 
 ```bash
-cd bank_feedback_generator
+# Windows (cmd)
+copy config-example.yaml config.yaml
+
+# Unix
+cp config-example.yaml config.yaml
+```
+
+Prefer the key in the environment rather than committing `gemini.api_key` in YAML.
+
+## Run as a script
+
+Edit `run_bank_feedback_generation(...)` at the bottom of `generator.py`, then:
+
+```bash
+cd ai-data-generator/bank_feedback_generator
 conda run -n google-adk python generator.py
 ```
 
-Paths for `config_path` and `output_jsonl_dir` default to the parent **`ai-data-generator`** folder (`../config.yaml`, `../out/`). Each branch is written as `../out/{branch_code}.jsonl`.
+Defaults resolve `config_path` and `output_jsonl_dir` to the parent folder (`../config.yaml`, `../out/`). Each branch is written as `../out/{branch_code}.jsonl`.
 
----
+## Import from another project
 
-Add **`ai-data-generator`** (the folder that *contains* `bank_feedback_generator`) to `PYTHONPATH`, then import the public function from the package.
-
-### Option A: From another project (recommended)
+Add **`ai-data-generator`** (the folder that *contains* `bank_feedback_generator`) to `PYTHONPATH`, then import the package. Do **not** add only `bank_feedback_generator` as the sole path entry.
 
 ```python
 import sys
 from pathlib import Path
 
-ADA = Path(r"f:/datascience/dsa-agent/ai-data-generator")  # adjust to your machine
+ADA = Path("/path/to/dsa-agent/ai-data-generator")  # adjust
 sys.path.insert(0, str(ADA))
 
 from bank_feedback_generator import generate_bank_feedback_data
@@ -71,7 +64,13 @@ records = generate_bank_feedback_data(
 print(len(records), "records")
 ```
 
-### Option B: One-liner from a shell (current directory = `ai-data-generator`)
+| You import | Defined in |
+|------------|------------|
+| `generate_bank_feedback_data`, `run_bank_feedback_generation` | `generator.py` (re-exported from `__init__.py`) |
+
+## One-liner from a shell
+
+With current directory **`ai-data-generator`**:
 
 ```bash
 conda run -n google-adk python -c "
@@ -81,7 +80,7 @@ from bank_feedback_generator import generate_bank_feedback_data
 from pathlib import Path
 n = len(generate_bank_feedback_data(
     2, 2, 4, False, 1, 30, 400, 100, 2000,
-    complaint_language="en",
+    complaint_language='en',
     config_path=Path('config.yaml'),
     output_jsonl_dir=Path('out'),
     seed=1,
@@ -90,25 +89,17 @@ print('wrote', n, 'records; one jsonl per branch under out/')
 "
 ```
 
-### Imports map
-
-| You import | Defined in |
-|------------|------------|
-| `generate_bank_feedback_data` | `generator.py` (re-exported from `__init__.py`) |
-
-**Do not** add `bank_feedback_generator` itself as the only path element; the import root must be **`ai-data-generator`** so that `bank_feedback_generator` resolves as a package.
-
 ## Outputs
 
-- **Return value**: `list[dict]` — one dict per synthetic record (`record_type`, `submission_type`, `verbatim`, branch fields, provenance, etc.). Schema aligns with `../docs/bank_branch_raw_feedback_context.md`.
-- **Language**: `complaint_language` (default `en`) controls the prompt and the `language` field on each record; `verbatim` length is enforced to stay between per-type min/max (short outputs are padded with generic bank phrases if needed).
-- **Created date**: pass `created_date="2025-12-31"` (or a `datetime.date`) so every `created_at` / `updated_at` stays on that day with random times; omit or `None` for the previous random calendar behaviour.
-- **Optional files**: if `output_jsonl_dir` is set, the code writes **one UTF-8 JSONL file per branch** in that directory: `{branch_code}.jsonl`, each line one JSON object. Pass `output_jsonl_dir=None` to skip writing.
+- **Return value:** `list[dict]` — one dict per record (`record_type`, `submission_type`, `verbatim`, branch fields, provenance, …). Schema aligns with [`../docs/bank_branch_raw_feedback_context.md`](../docs/bank_branch_raw_feedback_context.md).
+- **Language:** `complaint_language` (default `en`) drives prompts and the `language` field; verbatim length is clamped using the min/max parameters (short outputs may be padded with generic bank phrases).
+- **Created date:** pass `created_date="2025-12-31"` (or a `datetime.date`) so every `created_at` / `updated_at` falls on that calendar day with random times; omit for fully random dates.
+- **Files:** if `output_jsonl_dir` is set, writes **one UTF-8 JSONL per branch** (`{branch_code}.jsonl`). Use `output_jsonl_dir=None` to skip writing.
 
 ## Troubleshooting
 
-- **`ValueError: Missing Gemini API key`**: set `GEMINI_API_KEY` or `gemini.api_key` in `config.yaml`.
-- **`min_customers_per_branch` errors**: must be **≤ `min_records_per_branch`** so each branch has enough rows for distinct customers.
-- **Looks “hung”**: each Gemini chunk can take **several minutes** if `max_chars_detailed_complaint` / `max_chars_standard_feedback` or `gemini.max_output_tokens` in `config.yaml` are very large. Watch for `INFO Gemini: branch=... chunk ...` lines. Lower character limits, reduce `max_output_tokens`, or set `generator.chunk_size` smaller. `gemini.http_timeout_ms` (default 15 minutes per request if the key is omitted from YAML) avoids waiting forever; set to `null` or `0` for the SDK default.
+- **`ValueError: Missing Gemini API key`:** set `GEMINI_API_KEY` or `gemini.api_key` in `config.yaml`.
+- **`min_customers_per_branch` errors:** must be **≤ `min_records_per_branch`**.
+- **Slow runs:** large character limits or `gemini.max_output_tokens` increase latency. Watch `INFO Gemini: branch=... chunk ...` logs. Reduce limits, lower `generator.chunk_size`, or tune `gemini.http_timeout_ms` in `config.yaml` (default long timeout per request if omitted).
 
-For full parameter documentation, see the docstring of `generate_bank_feedback_data` in `generator.py`.
+Full parameter documentation: docstring of `generate_bank_feedback_data` in `generator.py`.
