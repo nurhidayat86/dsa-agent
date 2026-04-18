@@ -1,0 +1,9 @@
+{
+  "schema_version": 1,
+  "target_definition": "binary 0/1 = label",
+  "exclusions": [],
+  "forbidden_features": [],
+  "forced_features": [],
+  "min_gini_valid": 0.25,
+  "max_psi_oot_score": 0.25
+}

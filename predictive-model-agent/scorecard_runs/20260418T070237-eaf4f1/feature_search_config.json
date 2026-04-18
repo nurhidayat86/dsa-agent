@@ -1,0 +1,33 @@
+{
+  "recipes": [
+    {
+      "recipe_id": "iv_corr05",
+      "tool": "select_features_iv_max_corr",
+      "kwargs": {
+        "max_corr": 0.5
+      }
+    },
+    {
+      "recipe_id": "auc_corr05",
+      "tool": "select_features_auc_max_corr",
+      "kwargs": {
+        "max_corr": 0.5
+      }
+    },
+    {
+      "recipe_id": "aic_forward",
+      "tool": "select_features_aic_forward",
+      "kwargs": {
+        "max_corr": 0.6
+      }
+    },
+    {
+      "recipe_id": "bic_backward",
+      "tool": "select_features_bic_backward",
+      "kwargs": {
+        "max_corr": 0.6
+      }
+    }
+  ],
+  "max_features_global": null
+}

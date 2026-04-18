@@ -61,4 +61,43 @@ python -c "import agent_tools as at; print([x for x in dir(at) if not x.startswi
 
 Open the notebook under `notebook/` with Jupyter; set the kernel working directory so imports resolve (see the first notebook cell).
 
+## Multi-agent scorecard pipeline
+
+The `scorecard/` package implements the workflow documented in
+[`docs/multi-agent-scorecard-design.md`](docs/multi-agent-scorecard-design.md):
+ingest → EDA → splits → binning → multi-branch feature search → training →
+ranking → scorecard build → validation → model documentation, with HITL
+gates **H1–H6** between phases.
+
+Key modules:
+
+| Module | Role |
+|--------|------|
+| `scorecard/schemas.py` | Pydantic v2 contracts (single source of truth for gate payloads & artifacts). |
+| `scorecard/tools.py` | Pydantic-validated wrappers around `agent_tools.py` (no LLM imports). |
+| `scorecard/agents.py` | `google-adk` `LlmAgent` instances for narrative work (EDA summary, ranking rationale, doc prose). |
+| `scorecard/orchestrator.py` | Phase state machine, HITL gates, rewinds on `revise`. |
+| `scorecard/hitl.py` | `HitlInterface` + CLI / auto-approve / scripted implementations (GUI will subclass this). |
+| `scorecard/cli.py` | Argparse entry point. |
+
+Run the full pipeline on the HELOC sample with interactive CLI gates:
+
+```bash
+conda run -n google-adk python run_scorecard.py --data data/heloc_dataset_v1.parquet
+```
+
+Or non-interactively for a smoke test:
+
+```bash
+conda run -n google-adk python run_scorecard.py \
+    --data data/heloc_dataset_v1.parquet --auto-approve
+```
+
+Artifacts (data / problem contracts, binning process, per-branch results,
+proposal, PDO points table, validation tables, `model_documentation.md` and
+`run_manifest.json`) land under `scorecard_runs/<run_id>/`.
+
+LLM agents read the `gemini:` block in [`config.yaml`](config.yaml); set
+`GEMINI_API_KEY` (or the inline `api_key`) before running.
+
 This package was previously named **`credit-risk-data-scientist`**; update any local scripts or bookmarks to **`predictive-model-agent`**.

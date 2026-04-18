@@ -1,6 +1,8 @@
 # Multi-agent predictive scorecard system — design specification
 
-This document describes the **multi-agent architecture** for building a **binary logistic regression scorecard** (PDO-style scaling via optbinning) on tabular data. It is written as **implementation context** for a coding agent: orchestration, agent boundaries, human-in-the-loop (HITL) gates, data contracts, a **model documentation** deliverable (`model_documentation.md`), and mapping to the existing `predictive-model-agent` codebase.
+**Scope:** Binary **logistic regression** scorecard (PDO scaling via **optbinning**) on tabular data, implemented as an orchestrated multi-agent pipeline over [`agent_tools.py`](../agent_tools.py).
+
+**For implementers:** follow sections in order — **architecture (§3)** → **data & Pydantic contracts (§4)** → **phases & HITL (§5)** → **multi-branch selection (§6–7)** → **`agent_tools` map (§8)** → **artifacts (§9)** → **tests (§10)** → **orchestration options (§11)** → **model doc spec (§12)**.
 
 **Primary references**
 
@@ -24,7 +26,7 @@ This document describes the **multi-agent architecture** for building a **binary
 
 ---
 
-## 2. Non-goals (initial version)
+## 2. Non-goals
 
 - Replacing optbinning with custom IV/WoE implementations (reuse `agent_tools` / optbinning).
 - Auto-approval of models without a final human **model acceptance** gate (H6 in §5.2).
@@ -251,7 +253,7 @@ Coding agents should wrap these (names are illustrative; verify signatures in so
 | Discrimination | `get_score_predictive_power_data_type`, `get_score_predictive_power_timely`, `get_score_predictive_power_data_type_bootstrap`, `compare_score_predictive_power_data_type_bootstrap` |
 | Stability | `get_timely_vars_psi`, `get_timely_feature_psi_woe`, `get_timely_psi`, `compute_psi` |
 | Scorecard | `create_scorecard_model` (requires fitted `BinningProcess`, `LogisticRegression` kwargs, PDO parameters) |
-| Model documentation | `model_docs` (§12) | Aggregates outputs from the rows above into `model_documentation.md`; numeric sections must be sourced from tool outputs or serialized tables, not LLM-invented values. |
+| Model documentation | `model_docs` (§12): aggregate prior rows into `model_documentation.md`; numbers only from tool outputs or serialized tables. |
 
 See **`__all__`** in `agent_tools.py` for the complete export list.
 
@@ -294,7 +296,7 @@ The design is **orchestration-agnostic**. Implementations may use:
 
 - LangGraph / LangChain-style state graphs with interrupt nodes at H1–H6.
 - **Google ADK:** map `RunState` / phase outputs to Pydantic models; generate or hand-write tool parameter schemas from the same models used for persistence (avoid drifting JSON “shapes” from code).
-- A simple CLI + JSON files for HITL in v1 (validate stdin/file with `HitlDecision` before applying).
+- A minimal CLI + JSON files for HITL (validate stdin/file with `HitlDecision` before applying).
 
 Keep **gate IDs** (`H1`–`H6`) stable in code and docs so UX and logs stay aligned.
 
@@ -336,13 +338,3 @@ Each subsection below should be a **level-2 Markdown heading** (e.g. `## 2. Data
 
 - Extend **`ModelDocumentationMeta`** (§4.1) with `required_headings_ok: bool` from a linter step in CI.
 - Treat `model_documentation.md` as **immutable** after H6 approve (copy into package bundle); if H6 `revise` forces upstream changes, bump `run_id` or `doc_revision` in meta.
-
----
-
-## Document history
-
-| Version | Date | Notes |
-|---------|------|--------|
-| 1.0 | 2026-04-18 | Initial design: multi-agent roster, E2E flow, HITL gates, multi-branch feature modeling, `agent_tools` mapping |
-| 1.1 | 2026-04-18 | Pydantic v2: §3.3 rationale, §4.1 model catalog, HITL validation, artifacts table, ADK/MCP single-schema note |
-| 1.2 | 2026-04-18 | `model_docs` agent; phase 12 + flow update; H6 vs packaging clarified; §12 model documentation spec; artifacts + tests |

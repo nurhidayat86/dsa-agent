@@ -1,0 +1,26 @@
+{
+  "branch_id": "br_bic_backward",
+  "recipe_id": "bic_backward",
+  "features_woe": [
+    "ExternalRiskEstimate_woe",
+    "MSinceOldestTradeOpen_woe",
+    "NumSatisfactoryTrades_woe",
+    "PercentTradesNeverDelq_woe",
+    "PercentInstallTrades_woe",
+    "MSinceMostRecentInqexcl7days_woe",
+    "NetFractionRevolvingBurden_woe",
+    "NumRevolvingTradesWBalance_woe"
+  ],
+  "metrics": {
+    "auc_train": 0.8209581491067107,
+    "auc_valid": 0.8033682279015735,
+    "auc_test": 0.7894131508078995,
+    "gini_train": 0.6419162982134214,
+    "gini_valid": 0.606736455803147,
+    "gini_test": 0.5788263016157991
+  },
+  "model_path": null,
+  "metrics_path": null,
+  "passed_filters": true,
+  "filter_notes": []
+}

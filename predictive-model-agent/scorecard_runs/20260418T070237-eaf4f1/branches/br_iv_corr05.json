@@ -1,0 +1,29 @@
+{
+  "branch_id": "br_iv_corr05",
+  "recipe_id": "iv_corr05",
+  "features_woe": [
+    "ExternalRiskEstimate_woe",
+    "MSinceMostRecentInqexcl7days_woe",
+    "PercentTradesWBalance_woe",
+    "AverageMInFile_woe",
+    "PercentInstallTrades_woe",
+    "NumTrades60Ever2DerogPubRec_woe",
+    "NumBank2NatlTradesWHighUtilization_woe",
+    "NumInqLast6M_woe",
+    "NumSatisfactoryTrades_woe",
+    "NetFractionInstallBurden_woe",
+    "NumTradesOpeninLast12M_woe"
+  ],
+  "metrics": {
+    "auc_train": 0.8170974417755785,
+    "auc_valid": 0.8040563285457809,
+    "auc_test": 0.7923916200232337,
+    "gini_train": 0.634194883551157,
+    "gini_valid": 0.6081126570915618,
+    "gini_test": 0.5847832400464674
+  },
+  "model_path": null,
+  "metrics_path": null,
+  "passed_filters": true,
+  "filter_notes": []
+}

@@ -1,0 +1,27 @@
+{
+  "branch_id": "br_aic_forward",
+  "recipe_id": "aic_forward",
+  "features_woe": [
+    "ExternalRiskEstimate_woe",
+    "MSinceMostRecentInqexcl7days_woe",
+    "AverageMInFile_woe",
+    "PercentInstallTrades_woe",
+    "NumTotalTrades_woe",
+    "NetFractionRevolvingBurden_woe",
+    "MSinceMostRecentDelq_woe",
+    "NumRevolvingTradesWBalance_woe",
+    "NumInqLast6M_woe"
+  ],
+  "metrics": {
+    "auc_train": 0.8250467455892811,
+    "auc_valid": 0.7996031132415855,
+    "auc_test": 0.7990567496520797,
+    "gini_train": 0.6500934911785623,
+    "gini_valid": 0.599206226483171,
+    "gini_test": 0.5981134993041595
+  },
+  "model_path": null,
+  "metrics_path": null,
+  "passed_filters": true,
+  "filter_notes": []
+}

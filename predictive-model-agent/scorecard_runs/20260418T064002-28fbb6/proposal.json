@@ -1,0 +1,128 @@
+{
+  "champion_branch_id": "br_aic_forward",
+  "alternate_branch_ids": [
+    "br_bic_backward",
+    "br_iv_corr05",
+    "br_auc_corr05"
+  ],
+  "branches": [
+    {
+      "branch_id": "br_aic_forward",
+      "recipe_id": "aic_forward",
+      "features_woe": [
+        "ExternalRiskEstimate_woe",
+        "MSinceMostRecentInqexcl7days_woe",
+        "NumTotalTrades_woe",
+        "PercentInstallTrades_woe",
+        "AverageMInFile_woe",
+        "MSinceMostRecentDelq_woe",
+        "NetFractionRevolvingBurden_woe",
+        "NumRevolvingTradesWBalance_woe",
+        "NumInstallTradesWBalance_woe",
+        "MSinceMostRecentTradeOpen_woe"
+      ],
+      "metrics": {
+        "auc_train": 0.8261434713168027,
+        "auc_valid": 0.8124669975710213,
+        "auc_test": 0.804029926602598,
+        "gini_train": 0.6522869426336053,
+        "gini_valid": 0.6249339951420425,
+        "gini_test": 0.608059853205196
+      },
+      "model_path": null,
+      "metrics_path": null,
+      "passed_filters": true,
+      "filter_notes": []
+    },
+    {
+      "branch_id": "br_bic_backward",
+      "recipe_id": "bic_backward",
+      "features_woe": [
+        "ExternalRiskEstimate_woe",
+        "MSinceOldestTradeOpen_woe",
+        "NumSatisfactoryTrades_woe",
+        "PercentTradesNeverDelq_woe",
+        "PercentInstallTrades_woe",
+        "MSinceMostRecentInqexcl7days_woe",
+        "NetFractionRevolvingBurden_woe",
+        "NumRevolvingTradesWBalance_woe"
+      ],
+      "metrics": {
+        "auc_train": 0.8209581491067107,
+        "auc_valid": 0.8033682279015735,
+        "auc_test": 0.7894131508078995,
+        "gini_train": 0.6419162982134214,
+        "gini_valid": 0.606736455803147,
+        "gini_test": 0.5788263016157991
+      },
+      "model_path": null,
+      "metrics_path": null,
+      "passed_filters": true,
+      "filter_notes": []
+    },
+    {
+      "branch_id": "br_iv_corr05",
+      "recipe_id": "iv_corr05",
+      "features_woe": [
+        "ExternalRiskEstimate_woe",
+        "MSinceMostRecentInqexcl7days_woe",
+        "PercentTradesWBalance_woe",
+        "AverageMInFile_woe",
+        "PercentInstallTrades_woe",
+        "NumTrades60Ever2DerogPubRec_woe",
+        "NumBank2NatlTradesWHighUtilization_woe",
+        "NumInqLast6M_woe",
+        "NumSatisfactoryTrades_woe",
+        "NetFractionInstallBurden_woe",
+        "NumTradesOpeninLast12M_woe"
+      ],
+      "metrics": {
+        "auc_train": 0.8170974417755785,
+        "auc_valid": 0.8040563285457809,
+        "auc_test": 0.7923916200232337,
+        "gini_train": 0.634194883551157,
+        "gini_valid": 0.6081126570915618,
+        "gini_test": 0.5847832400464674
+      },
+      "model_path": null,
+      "metrics_path": null,
+      "passed_filters": true,
+      "filter_notes": []
+    },
+    {
+      "branch_id": "br_auc_corr05",
+      "recipe_id": "auc_corr05",
+      "features_woe": [
+        "ExternalRiskEstimate_woe",
+        "MSinceMostRecentInqexcl7days_woe",
+        "PercentTradesWBalance_woe",
+        "AverageMInFile_woe",
+        "PercentInstallTrades_woe",
+        "NumBank2NatlTradesWHighUtilization_woe",
+        "NumTrades60Ever2DerogPubRec_woe",
+        "NumInqLast6M_woe",
+        "NumSatisfactoryTrades_woe",
+        "NetFractionInstallBurden_woe",
+        "NumTradesOpeninLast12M_woe"
+      ],
+      "metrics": {
+        "auc_train": 0.8170974417755785,
+        "auc_valid": 0.8040563285457809,
+        "auc_test": 0.7923916200232337,
+        "gini_train": 0.634194883551157,
+        "gini_valid": 0.6081126570915618,
+        "gini_test": 0.5847832400464674
+      },
+      "model_path": null,
+      "metrics_path": null,
+      "passed_filters": true,
+      "filter_notes": []
+    }
+  ],
+  "ranker_weights": {
+    "w_valid_gini": 0.6,
+    "w_test_gini": 0.3,
+    "w_parsimony": 0.1
+  },
+  "rationale": "The champion model is aic_forward, which demonstrates superior predictive performance across all evaluation sets. It achieves a test AUC of 0.8040 and a test Gini of 0.6081, outperforming all other candidates. While the iv_corr05 and auc_corr05 branches provide competitive metrics, they require more features to achieve lower predictive accuracy. The aic_forward approach strikes the optimal balance between model complexity and robust performance, making it the most effective candidate."
+}
