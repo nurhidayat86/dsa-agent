@@ -1,103 +1,98 @@
 # Predictive model agent
 
-Tabular **modeling and monitoring** helpers for AI agents or MCP tools. The main module is [`agent_tools.py`](agent_tools.py): validated inputs, stable return shapes, and docstrings suitable for tool schemas.
+Tabular **modeling and monitoring** for AI agents or MCP tools, plus a **multi-phase credit-style scorecard pipeline** with human-in-the-loop gates.
 
 ## Layout
 
 | Path | Description |
 |------|-------------|
-| `agent_tools.py` | Main module (`import agent_tools` with this directory on `PYTHONPATH`, or `cd` here) |
-| `notebook/testing_tools.ipynb` | Examples using `data/heloc_dataset_v1.parquet` |
-| `data/` | Sample HELOC-style dataset (CSV and Parquet) |
+| [`agent_tools.py`](agent_tools.py) | Core library: splits, PSI, WoE, logistic regression, optbinning/scorecard helpers, etc. Import as `agent_tools` with this directory on `PYTHONPATH` (or run from this folder). |
+| [`requirements.txt`](requirements.txt) | Minimum third-party packages for `agent_tools` and the scorecard stack (`pip install -r requirements.txt`). |
+| [`run_scorecard.py`](run_scorecard.py) | CLI launcher; equivalent to `python -m scorecard.cli` with the repo root on the path. |
+| [`scorecard/`](scorecard/) | Pipeline package: schemas, tools (wrappers over `agent_tools`), orchestrator, ADK agents, HITL, CLI. |
+| [`docs/multi-agent-scorecard-design.md`](docs/multi-agent-scorecard-design.md) | Design: phases, gates **H1–H6**, artifacts. |
+| [`notebook/testing_tools.ipynb`](notebook/testing_tools.ipynb) | Worked examples using [`data/heloc_dataset_v1.parquet`](data/heloc_dataset_v1.parquet) (and CSV). |
+| [`data/`](data/) | Sample HELOC-style dataset (Parquet and CSV). |
+| `scorecard_runs/<run_id>/` | Created per pipeline run: contracts, binning, branches, scorecard tables, validation parquet, `model_documentation.md`, `run_manifest.json`, optional `production/scoring.py`. |
 
-## What `agent_tools` covers
+## Setup
 
-### Splits and cohort labels
-
-- **`split_data`** — Labels rows as `train`, `valid`, `test`, `hoot`, and/or `oot` from a time column and thresholds (core rows can be stratified into train/valid/test).
-
-### Population stability (PSI)
-
-- **`compute_psi`** — PSI for one numeric feature using reference quantile bins.
-- **`get_timely_vars_psi`** — PSI for each variable in `col_vars` vs. reference `df_ref`, by production period `col_time` (quantile bins via `compute_psi`); optional `prod_time_values`. **Return shape:** index = `time`, columns = variable names, values = PSI.
-- **`get_timely_feature_psi_woe`** — Unlike **`get_timely_vars_psi`** (quantile bins on raw variables), WoE PSI uses **each distinct WoE value as its own bin** (no new bins). Returns a **wide** table: **index = feature names**, **columns = periods** (e.g. month), **values = PSI** (no count column).
-- **`get_timely_psi`** — PSI for a **single** variable across `col_period`: **numeric** columns use quantile bins (`n_bin`); **categorical / string / bool** use native categories as bins. Columns: `time_period`, `psi`, **`count data`**.
-
-### Target rates over time or segments
-
-- **`get_timely_binary_target_rate`** — Mean and count of the target by `col_period`.
-- **`get_timely_target_rate_feature_segment`** — For each period, each binned/categorical feature, and each **segment** (distinct feature value), returns **`time period`**, **`feature name`**, **`segment`**, **`count data`**, **`count positive`**, **`positive rate`** (positive class = numerically higher target value when the global target is binary).
-
-### Score discrimination (ROC-AUC, Gini)
-
-- **`get_score_predictive_power_timely`** — AUC (and Gini, counts, positive rate) of one score by **`col_period`**.
-- **`get_score_predictive_power_data_type`** — Same metrics by **`col_type`** (e.g. train / valid / test / oot); output uses `time_period` as the cohort key for tooling parity.
-- **`get_score_predictive_power_data_type_bootstrap`** — Bootstrap distributions of AUC/Gini (and mean positive rate) per `col_type`.
-- **`compare_score_predictive_power_data_type_bootstrap`** — Paired bootstrap comparison of **champion** vs **challenger** scores per `col_type` (CIs and means for AUC and Gini).
-
-### Logistic regression (tuning and scoring)
-
-- **`train_logreg_l1_tune_cv`** / **`train_logreg_l2_tune_cv`** — Tune `C` with stratified CV on `train`, pick best on `valid`, report on train/valid/test; optional `min_delta` for step improvement; default `C` grids; **sklearn ≥ 1.8** uses `l1_ratio` instead of deprecated `penalty`.
-- **`logreg_predict`** — Returns `proba_0`, `proba_1` (lists) and a dict of feature alignment issues.
-
-### Feature selection and binning
-
-- **Stepwise selection** — `select_features_*_{forward,backward}` for AIC, BIC, or training ROC-AUC, with optional **`min_delta`** and correlation caps.
-- **Greedy filters** — `select_features_auc_max_corr`, `select_features_iv_max_corr`.
-- **Optbinning** — `get_optimal_bin`, `modify_optimal_bin`, binning tables, **`get_woe_from_bp`**, etc.
-
-### Other utilities
-
-- Missingness over time, PSI-style timely views, dtype helpers, virtual date helpers, and more (see **`__all__`** in `agent_tools.py` for the exported names).
-
-## Quick start
-
-From this folder (or with `PYTHONPATH` including it):
+Use the **`google-adk`** conda environment (same as other folders in this repo) or any Python 3.10+ env with the packages in [`requirements.txt`](requirements.txt):
 
 ```bash
 cd predictive-model-agent
-python -c "import agent_tools as at; print([x for x in dir(at) if not x.startswith('_')][:15])"
+conda run -n google-adk pip install -r requirements.txt
 ```
 
-Open the notebook under `notebook/` with Jupyter; set the kernel working directory so imports resolve (see the first notebook cell).
+**Gemini / ADK:** add `config.yaml` next to this README (or pass `--config` to the CLI). It must include a `gemini:` block; see [`scorecard/settings.py`](scorecard/settings.py). Set **`GEMINI_API_KEY`** or **`GOOGLE_API_KEY`** in the environment (or `gemini.api_key` in YAML for local use). The loader mirrors the key into `GOOGLE_API_KEY` for the GenAI SDK.
+
+## What `agent_tools` covers (high level)
+
+### Splits and cohort labels
+
+- **`split_data`** — `train` / `valid` / `test` / `hoot` / `oot` from a time column and thresholds.
+
+### Population stability (PSI)
+
+- **`compute_psi`** — numeric feature vs reference quantile bins.
+- **`get_timely_vars_psi`** — per-variable PSI over time (quantile bins on raw values).
+- **`get_timely_feature_psi_woe`** — WoE-level PSI (wide: features × periods).
+- **`get_timely_psi`** — single variable over `col_period` (numeric quantile bins or categorical levels).
+
+### Target rates and score power
+
+- **`get_timely_binary_target_rate`**, **`get_timely_target_rate_feature_segment`**
+- **`get_score_predictive_power_timely`**, **`get_score_predictive_power_data_type`**, bootstrap and champion–challenger comparison helpers.
+
+### Logistic regression
+
+- **`train_logreg_l1_tune_cv`** / **`train_logreg_l2_tune_cv`** — CV tuning; **scikit-learn ≥ 1.8** uses `l1_ratio` instead of deprecated `penalty` for elastic-style control.
+- **`logreg_predict`**
+
+### Feature selection and binning
+
+- Stepwise AIC / BIC / AUC (forward/backward), greedy AUC/IV with correlation caps.
+- **Optbinning:** `get_optimal_bin`, `modify_optimal_bin`, binning tables, **`get_woe_from_bp`**, scorecard fitting and production code emission (see docstrings and **`__all__`** in `agent_tools.py`).
+
+### Quick library check
+
+```bash
+cd predictive-model-agent
+python -c "import agent_tools as at; print([x for x in dir(at) if not x.startswith('_')][:20])"
+```
+
+For Jupyter, open `notebook/testing_tools.ipynb` and use a kernel whose working directory includes this folder so `import agent_tools` resolves.
 
 ## Multi-agent scorecard pipeline
 
-The `scorecard/` package implements the workflow documented in
-[`docs/multi-agent-scorecard-design.md`](docs/multi-agent-scorecard-design.md):
-ingest → EDA → splits → binning → multi-branch feature search → training →
-ranking → scorecard build → validation → model documentation, with HITL
-gates **H1–H6** between phases.
-
-Key modules:
+The `scorecard/` package runs: ingest → EDA → splits → binning → multi-branch feature search → training → ranking → scorecard build → validation → model documentation, with **HITL gates H1–H6** between phases (rewinds on `revise` where applicable).
 
 | Module | Role |
 |--------|------|
-| `scorecard/schemas.py` | Pydantic v2 contracts (single source of truth for gate payloads & artifacts). |
-| `scorecard/tools.py` | Pydantic-validated wrappers around `agent_tools.py` (no LLM imports). |
-| `scorecard/agents.py` | `google-adk` `LlmAgent` instances for narrative work (EDA summary, ranking rationale, doc prose). |
-| `scorecard/orchestrator.py` | Phase state machine, HITL gates, rewinds on `revise`. |
-| `scorecard/hitl.py` | `HitlInterface` + CLI / auto-approve / scripted implementations (GUI will subclass this). |
-| `scorecard/cli.py` | Argparse entry point. |
+| [`scorecard/schemas.py`](scorecard/schemas.py) | Pydantic v2 contracts for gate payloads and artifacts. |
+| [`scorecard/tools.py`](scorecard/tools.py) | Validated wrappers over `agent_tools` (no LLM imports). |
+| [`scorecard/agents.py`](scorecard/agents.py) | Google ADK `LlmAgent` instances for narrative steps. |
+| [`scorecard/orchestrator.py`](scorecard/orchestrator.py) | Phase machine, gates, persistence under `scorecard_runs/`. |
+| [`scorecard/hitl.py`](scorecard/hitl.py) | `HitlInterface` and CLI / auto-approve / scripted implementations. |
+| [`scorecard/cli.py`](scorecard/cli.py) | Argparse entry point (`python -m scorecard.cli`). |
+| [`scorecard/settings.py`](scorecard/settings.py) | Loads `config.yaml`, Gemini block, API key handling. |
 
-Run the full pipeline on the HELOC sample with interactive CLI gates:
+**Run** (from this directory, HELOC sample):
 
 ```bash
 conda run -n google-adk python run_scorecard.py --data data/heloc_dataset_v1.parquet
 ```
 
-Or non-interactively for a smoke test:
+Non-interactive smoke test:
 
 ```bash
-conda run -n google-adk python run_scorecard.py \
-    --data data/heloc_dataset_v1.parquet --auto-approve
+conda run -n google-adk python run_scorecard.py --data data/heloc_dataset_v1.parquet --auto-approve
 ```
 
-Artifacts (data / problem contracts, binning process, per-branch results,
-proposal, PDO points table, validation tables, `model_documentation.md` and
-`run_manifest.json`) land under `scorecard_runs/<run_id>/`.
+Same via module:
 
-LLM agents read the `gemini:` block in [`config.yaml`](config.yaml); set
-`GEMINI_API_KEY` (or the inline `api_key`) before running.
+```bash
+conda run -n google-adk python -m scorecard.cli --data data/heloc_dataset_v1.parquet --auto-approve
+```
 
-This package was previously named **`credit-risk-data-scientist`**; update any local scripts or bookmarks to **`predictive-model-agent`**.
+Useful flags (see [`scorecard/cli.py`](scorecard/cli.py)): `--config`, `--artifacts-root`, `--run-id`, `--col-target`, `--col-time`, `--max-iterations`, `--hitl-script` (JSONL decisions).
