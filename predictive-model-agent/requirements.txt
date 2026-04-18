@@ -1,0 +1,18 @@
+# Minimum third-party deps to run Python entry points in this folder
+# (run_scorecard.py, scorecard CLI, agent_tools, scorecard pipeline).
+# Install from this directory: pip install -r requirements.txt
+#
+# google-adk pulls google-genai, pydantic, PyYAML, pyarrow, and other
+# runtime deps; versions below are direct imports from this codebase.
+
+numpy>=1.23
+pandas>=2.0
+pyarrow>=12.0
+scikit-learn>=1.3
+optbinning>=0.17.0
+pydantic>=2.4
+PyYAML>=6.0
+google-adk>=1.20
+
+# matplotlib: only imported by some agent_tools helpers; optbinning already
+# depends on matplotlib, so it is usually present without an extra pin.
