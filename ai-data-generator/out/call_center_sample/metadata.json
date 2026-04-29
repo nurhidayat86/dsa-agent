@@ -1,0 +1,390 @@
+{
+  "batch_id": "2026-04-07T200720Z_synth",
+  "record_type": "bank_telesales_batch",
+  "synthetic": true,
+  "generator_version": "0.1.0",
+  "model": "gemini-flash-lite-latest",
+  "created_at": "2026-04-07T20:10:53Z",
+  "spoken_duration_target_seconds": {
+    "min": 45.0,
+    "max": 300.0
+  },
+  "spoken_word_count_bounds_global": {
+    "min": 129,
+    "max": 630
+  },
+  "duration_distribution": "priority: at_least_one_maximum_then_minimum_then_random_between_bounds; row0=minimum_row_when_n_ge_2_last_row=maximum_row_when_n_ge_2",
+  "conversation_count": 10,
+  "conversations": [
+    {
+      "conversation_id": "tel-2026-00000001",
+      "record_type": "bank_telesales_conversation",
+      "scenario": "loan_topup_offer",
+      "language": "en",
+      "conversation_datetime": "2026-05-23T05:39:39+07:00",
+      "customer_ref": "SYN-CUST-1C516CAC25",
+      "branch_code": "BR-SUMA-981",
+      "primary_product": "personal_loan_topup",
+      "secondary_products": [
+        "savings_premium"
+      ],
+      "outcome": "interested",
+      "transcript_path": "conversations/conv-00001.txt",
+      "speaker_map": {
+        "0": {
+          "role": "tele_sales_agent",
+          "display_name": "Agent"
+        },
+        "1": {
+          "role": "customer",
+          "display_name": "Customer"
+        }
+      },
+      "vibevoice_speaker_names": [
+        "Alice",
+        "Frank"
+      ],
+      "transcript_word_count": 161,
+      "target_spoken_seconds": 45.0,
+      "duration_slot": "minimum",
+      "duration_word_band_mode": "per_slot",
+      "spoken_word_count_bounds": {
+        "min": 129,
+        "max": 187
+      }
+    },
+    {
+      "conversation_id": "tel-2026-00000002",
+      "record_type": "bank_telesales_conversation",
+      "scenario": "credit_card_gold_upgrade",
+      "language": "en",
+      "conversation_datetime": "2026-02-22T03:22:36+07:00",
+      "customer_ref": "SYN-CUST-B6E2A53535",
+      "branch_code": "BR-SULA-100",
+      "primary_product": "credit_card_gold",
+      "secondary_products": [
+        "savings_premium"
+      ],
+      "outcome": "interested",
+      "transcript_path": "conversations/conv-00002.txt",
+      "speaker_map": {
+        "0": {
+          "role": "tele_sales_agent",
+          "display_name": "Agent"
+        },
+        "1": {
+          "role": "customer",
+          "display_name": "Customer"
+        }
+      },
+      "vibevoice_speaker_names": [
+        "Alice",
+        "Grace"
+      ],
+      "transcript_word_count": 563,
+      "target_spoken_seconds": 227.59,
+      "duration_slot": "random",
+      "duration_word_band_mode": "per_slot",
+      "spoken_word_count_bounds": {
+        "min": 440,
+        "max": 536
+      }
+    },
+    {
+      "conversation_id": "tel-2026-00000003",
+      "record_type": "bank_telesales_conversation",
+      "scenario": "credit_card_upsell",
+      "language": "en",
+      "conversation_datetime": "2026-06-26T21:58:51+07:00",
+      "customer_ref": "SYN-CUST-4EB3133567",
+      "branch_code": "BR-KALI-827",
+      "primary_product": "credit_card_gold",
+      "secondary_products": [
+        "savings_premium"
+      ],
+      "outcome": "interested",
+      "transcript_path": "conversations/conv-00003.txt",
+      "speaker_map": {
+        "0": {
+          "role": "tele_sales_agent",
+          "display_name": "Agent"
+        },
+        "1": {
+          "role": "customer",
+          "display_name": "Customer"
+        }
+      },
+      "vibevoice_speaker_names": [
+        "Alice",
+        "Frank"
+      ],
+      "transcript_word_count": 511,
+      "target_spoken_seconds": 223.84,
+      "duration_slot": "random",
+      "duration_word_band_mode": "per_slot",
+      "spoken_word_count_bounds": {
+        "min": 432,
+        "max": 528
+      }
+    },
+    {
+      "conversation_id": "tel-2026-00000004",
+      "record_type": "bank_telesales_conversation",
+      "scenario": "credit_card_gold_upgrade",
+      "language": "en",
+      "conversation_datetime": "2026-08-24T19:31:24+07:00",
+      "customer_ref": "",
+      "branch_code": "BR-JAVA-997",
+      "primary_product": "credit_card_gold",
+      "secondary_products": [
+        "travel_insurance"
+      ],
+      "outcome": "interested",
+      "transcript_path": "conversations/conv-00004.txt",
+      "speaker_map": {
+        "0": {
+          "role": "tele_sales_agent",
+          "display_name": "Agent"
+        },
+        "1": {
+          "role": "customer",
+          "display_name": "Customer"
+        }
+      },
+      "vibevoice_speaker_names": [
+        "Alice",
+        "Frank"
+      ],
+      "transcript_word_count": 370,
+      "target_spoken_seconds": 151.98,
+      "duration_slot": "random",
+      "duration_word_band_mode": "per_slot",
+      "spoken_word_count_bounds": {
+        "min": 291,
+        "max": 387
+      }
+    },
+    {
+      "conversation_id": "tel-2026-00000005",
+      "record_type": "bank_telesales_conversation",
+      "scenario": "personal_loan_topup_campaign",
+      "language": "en",
+      "conversation_datetime": "2026-02-10T20:05:57+07:00",
+      "customer_ref": "SYN-CUST-701A174668",
+      "branch_code": "BR-KALI-850",
+      "primary_product": "personal_loan_topup",
+      "secondary_products": [
+        "savings_premium"
+      ],
+      "outcome": "interested",
+      "transcript_path": "conversations/conv-00005.txt",
+      "speaker_map": {
+        "0": {
+          "role": "tele_sales_agent",
+          "display_name": "Agent"
+        },
+        "1": {
+          "role": "customer",
+          "display_name": "Customer"
+        }
+      },
+      "vibevoice_speaker_names": [
+        "Alice",
+        "Frank"
+      ],
+      "transcript_word_count": 416,
+      "target_spoken_seconds": 159.55,
+      "duration_slot": "random",
+      "duration_word_band_mode": "per_slot",
+      "spoken_word_count_bounds": {
+        "min": 306,
+        "max": 402
+      }
+    },
+    {
+      "conversation_id": "tel-2026-00000006",
+      "record_type": "bank_telesales_conversation",
+      "scenario": "personal_loan_topup_campaign",
+      "language": "en",
+      "conversation_datetime": "2026-07-05T21:01:14+07:00",
+      "customer_ref": "SYN-CUST-C11334142E",
+      "branch_code": "BR-SUMA-722",
+      "primary_product": "personal_loan_topup",
+      "secondary_products": [
+        "savings_premium"
+      ],
+      "outcome": "interested",
+      "transcript_path": "conversations/conv-00006.txt",
+      "speaker_map": {
+        "0": {
+          "role": "tele_sales_agent",
+          "display_name": "Agent"
+        },
+        "1": {
+          "role": "customer",
+          "display_name": "Customer"
+        }
+      },
+      "vibevoice_speaker_names": [
+        "Alice",
+        "Grace"
+      ],
+      "transcript_word_count": 348,
+      "target_spoken_seconds": 115.94,
+      "duration_slot": "random",
+      "duration_word_band_mode": "per_slot",
+      "spoken_word_count_bounds": {
+        "min": 220,
+        "max": 316
+      }
+    },
+    {
+      "conversation_id": "tel-2026-00000007",
+      "record_type": "bank_telesales_conversation",
+      "scenario": "credit_card_gold_upgrade",
+      "language": "en",
+      "conversation_datetime": "2026-12-05T08:17:51+07:00",
+      "customer_ref": "",
+      "branch_code": "BR-MALU-297",
+      "primary_product": "credit_card_gold",
+      "secondary_products": [
+        "savings_premium"
+      ],
+      "outcome": "interested",
+      "transcript_path": "conversations/conv-00007.txt",
+      "speaker_map": {
+        "0": {
+          "role": "tele_sales_agent",
+          "display_name": "Agent"
+        },
+        "1": {
+          "role": "customer",
+          "display_name": "Customer"
+        }
+      },
+      "vibevoice_speaker_names": [
+        "Alice",
+        "Frank"
+      ],
+      "transcript_word_count": 606,
+      "target_spoken_seconds": 266.67,
+      "duration_slot": "random",
+      "duration_word_band_mode": "per_slot",
+      "spoken_word_count_bounds": {
+        "min": 517,
+        "max": 613
+      }
+    },
+    {
+      "conversation_id": "tel-2026-00000008",
+      "record_type": "bank_telesales_conversation",
+      "scenario": "credit_card_gold_upsell",
+      "language": "en",
+      "conversation_datetime": "2026-04-30T03:40:38+07:00",
+      "customer_ref": "SYN-CUST-FBB478C780",
+      "branch_code": "BR-SULA-285",
+      "primary_product": "credit_card_gold",
+      "secondary_products": [
+        "savings_premium"
+      ],
+      "outcome": "interested",
+      "transcript_path": "conversations/conv-00008.txt",
+      "speaker_map": {
+        "0": {
+          "role": "tele_sales_agent",
+          "display_name": "Agent"
+        },
+        "1": {
+          "role": "customer",
+          "display_name": "Customer"
+        }
+      },
+      "vibevoice_speaker_names": [
+        "Alice",
+        "Frank"
+      ],
+      "transcript_word_count": 534,
+      "target_spoken_seconds": 238.5,
+      "duration_slot": "random",
+      "duration_word_band_mode": "per_slot",
+      "spoken_word_count_bounds": {
+        "min": 461,
+        "max": 557
+      }
+    },
+    {
+      "conversation_id": "tel-2026-00000009",
+      "record_type": "bank_telesales_conversation",
+      "scenario": "credit_card_upsell",
+      "language": "en",
+      "conversation_datetime": "2026-07-06T05:55:19+07:00",
+      "customer_ref": "SYN-CUST-CA80549B52",
+      "branch_code": "BR-KALI-364",
+      "primary_product": "credit_card_gold",
+      "secondary_products": [
+        "travel_insurance"
+      ],
+      "outcome": "interested",
+      "transcript_path": "conversations/conv-00009.txt",
+      "speaker_map": {
+        "0": {
+          "role": "tele_sales_agent",
+          "display_name": "Agent"
+        },
+        "1": {
+          "role": "customer",
+          "display_name": "Customer"
+        }
+      },
+      "vibevoice_speaker_names": [
+        "Alice",
+        "Frank"
+      ],
+      "transcript_word_count": 291,
+      "target_spoken_seconds": 85.71,
+      "duration_slot": "random",
+      "duration_word_band_mode": "per_slot",
+      "spoken_word_count_bounds": {
+        "min": 161,
+        "max": 257
+      }
+    },
+    {
+      "conversation_id": "tel-2026-00000010",
+      "record_type": "bank_telesales_conversation",
+      "scenario": "personal_loan_topup_upsell",
+      "language": "en",
+      "conversation_datetime": "2026-05-17T23:35:39+07:00",
+      "customer_ref": "SYN-CUST-F8D6E165D4",
+      "branch_code": "BR-JAVA-624",
+      "primary_product": "personal_loan_topup",
+      "secondary_products": [
+        "savings_premium"
+      ],
+      "outcome": "interested",
+      "transcript_path": "conversations/conv-00010.txt",
+      "speaker_map": {
+        "0": {
+          "role": "tele_sales_agent",
+          "display_name": "Agent"
+        },
+        "1": {
+          "role": "customer",
+          "display_name": "Customer"
+        }
+      },
+      "vibevoice_speaker_names": [
+        "Alice",
+        "Frank"
+      ],
+      "transcript_word_count": 603,
+      "target_spoken_seconds": 300.0,
+      "duration_slot": "maximum",
+      "duration_word_band_mode": "per_slot",
+      "spoken_word_count_bounds": {
+        "min": 572,
+        "max": 630
+      }
+    }
+  ]
+}
